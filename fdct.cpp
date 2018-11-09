@@ -47,17 +47,16 @@ Block FDCT::RGB2YCbCr(BMP &bmp) {
 		for (int h = 0; h < bmp.height; h++) {
 			b.data[w][h][0] = 2990 * (int) bmp.data[w][h][0]
 				+ 5870 * (int) bmp.data[w][h][1]
-				+ 1140 * (int) bmp.data[w][h][2];
+				+ 1140 * (int) bmp.data[w][h][2]
+				- 1280000;
 
 			b.data[w][h][1] = -1687 * (int) bmp.data[w][h][0]
 				- 3313 * (int) bmp.data[w][h][1]
-				+ 5000 * (int) bmp.data[w][h][2]
-				+ 1280000;
+				+ 5000 * (int) bmp.data[w][h][2];
 
 			b.data[w][h][2] = 5000 * (int) bmp.data[w][h][0]
 				- 4187 * (int) bmp.data[w][h][1]
-				- 813 * (int) bmp.data[w][h][2]
-				+ 1280000;
+				- 813 * (int) bmp.data[w][h][2];
 		}
 	}
 	return b;
