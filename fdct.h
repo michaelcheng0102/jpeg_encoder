@@ -11,7 +11,7 @@ public:
 	Block(int width, int height);
 	~Block();
 
-	double*** data;
+	int*** data;
 	int width;
 	int height;
 };

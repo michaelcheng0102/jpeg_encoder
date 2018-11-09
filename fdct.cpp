@@ -19,11 +19,11 @@ Block::Block() {
 Block::Block(int w, int h) {
 	width = w;
 	height = h;
-	data = new double**[width];
+	data = new int**[width];
 	for (int i = 0; i < width; i++) {
-		data[w] = new double*[height];
+		data[w] = new int*[height];
 		for (int h = 0; h < height; h++) {
-			data[w][h] = new double[3];
+			data[w][h] = new int[3];
 		}
 	}
 }
@@ -45,20 +45,19 @@ Block FDCT::RGB2YCbCr(BMP &bmp) {
 	Block b(bmp.width, bmp.height);
 	for (int w = 0; w < bmp.width; w++) {
 		for (int h = 0; h < bmp.height; h++) {
-			b.data[w][h][0] = 0.229 * (double) bmp.data[w][h][0]
-				+ 0.587 * (double) bmp.data[w][h][1]
-				+ 0.114 * (double) bmp.data[w][h][2];
+			b.data[w][h][0] = 2990 * (int) bmp.data[w][h][0]
+				+ 5870 * (int) bmp.data[w][h][1]
+				+ 1140 * (int) bmp.data[w][h][2];
 
-			b.data[w][h][1] = -0.1687 * (double) bmp.data[w][h][0]
-				- 0.3313 * (double) bmp.data[w][h][1]
-				+ 0.5 * (double) bmp.data[w][h][2]
-				+ 128;
+			b.data[w][h][1] = -1687 * (int) bmp.data[w][h][0]
+				- 3313 * (int) bmp.data[w][h][1]
+				+ 5000 * (int) bmp.data[w][h][2]
+				+ 1280000;
 
-			b.data[w][h][2] = 0.5 * (double) bmp.data[w][h][0]
-				- 0.4187 * (double) bmp.data[w][h][1]
-				- 0.0813 * (double) bmp.data[w][h][2]
-				+ 128;
-
+			b.data[w][h][2] = 5000 * (int) bmp.data[w][h][0]
+				- 4187 * (int) bmp.data[w][h][1]
+				- 813 * (int) bmp.data[w][h][2]
+				+ 1280000;
 		}
 	}
 	return b;
