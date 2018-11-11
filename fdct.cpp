@@ -96,7 +96,7 @@ Block** FDCT::fdct(YUV &yuv) {
                             tmp3 += yuv.data[i * Block::BLOCK_SIZE + x][j * Block::BLOCK_SIZE + y][2] * cc;
                         }
                     }
-                    double aa = alpha(u) * alpha(v) / 4.0 / Qmatrix[u][v];
+                    double aa = alpha(u) * alpha(v) / 40000.0 / Qmatrix[u][v];
                     blks[i][j].data[u][v][0] = tmp1 * aa;
                     blks[i][j].data[u][v][1] = tmp2 * aa;
                     blks[i][j].data[u][v][2] = tmp3 * aa;
