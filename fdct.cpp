@@ -18,7 +18,6 @@ FDCT::FDCT() {
 }
 
 FDCT::~FDCT() {
-
 }
 
 YUV::YUV() {
@@ -86,21 +85,21 @@ Block** FDCT::fdct(YUV &yuv) {
             blks[i][j].y = j;
             for (int u = 0; u < Block::BLOCK_SIZE; u++) {
                 for (int v = 0; v < Block::BLOCK_SIZE; v++) {
-                    blks[i][j].data[u][v][0] = 0;
-                    blks[i][j].data[u][v][1] = 0;
-                    blks[i][j].data[u][v][2] = 0;
+                    double tmp1 = 0;
+                    double tmp2 = 0;
+                    double tmp3 = 0;
                     for (int x = 0; x < Block::BLOCK_SIZE; x++) {
                         for (int y = 0; y < Block::BLOCK_SIZE; y++) {
                             double cc = cos((2.0 * x + 1.0) * u * PI / 16.0) * cos((2.0 * y + 1.0) * v * PI / 16.0);
-                            blks[i][j].data[u][v][0] += yuv.data[i * Block::BLOCK_SIZE + x][j * Block::BLOCK_SIZE + y][0] * cc;
-                            blks[i][j].data[u][v][1] += yuv.data[i * Block::BLOCK_SIZE + x][j * Block::BLOCK_SIZE + y][1] * cc;
-                            blks[i][j].data[u][v][2] += yuv.data[i * Block::BLOCK_SIZE + x][j * Block::BLOCK_SIZE + y][2] * cc;
+                            tmp1 += yuv.data[i * Block::BLOCK_SIZE + x][j * Block::BLOCK_SIZE + y][0] * cc;
+                            tmp2 += yuv.data[i * Block::BLOCK_SIZE + x][j * Block::BLOCK_SIZE + y][1] * cc;
+                            tmp3 += yuv.data[i * Block::BLOCK_SIZE + x][j * Block::BLOCK_SIZE + y][2] * cc;
                         }
                     }
-                    double aa = alpha(u) * alpha(v) / 4.0;
-                    blks[i][j].data[u][v][0] *= aa;
-                    blks[i][j].data[u][v][1] *= aa;
-                    blks[i][j].data[u][v][2] *= aa;
+                    double aa = alpha(u) * alpha(v) / 4.0 / Qmatrix[u][v];
+                    blks[i][j].data[u][v][0] = tmp1 * aa;
+                    blks[i][j].data[u][v][1] = tmp2 * aa;
+                    blks[i][j].data[u][v][2] = tmp3 * aa;
                 }
             }
         }
@@ -110,11 +109,11 @@ Block** FDCT::fdct(YUV &yuv) {
 }
 
 Block::Block() {
-	data = new double**[BLOCK_SIZE];
+	data = new int**[BLOCK_SIZE];
 	for (int i = 0; i < BLOCK_SIZE; i++) {
-		data[i] = new double*[BLOCK_SIZE];
+		data[i] = new int*[BLOCK_SIZE];
 		for (int j = 0; j < BLOCK_SIZE; j++) {
-			data[i][j] = new double[3];
+			data[i][j] = new int[3];
 		}
 	}
 }
@@ -128,4 +127,5 @@ Block::~Block() {
 	}
 	delete []data;
 }
+
 
