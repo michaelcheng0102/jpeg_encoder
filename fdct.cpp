@@ -21,9 +21,9 @@ YUV::YUV(int w, int h) {
 	height = h;
 	data = new int**[width];
 	for (int i = 0; i < width; i++) {
-		data[w] = new int*[height];
-		for (int h = 0; h < height; h++) {
-			data[w][h] = new int[3];
+		data[i] = new int*[height];
+		for (int j = 0; j < height; j++) {
+			data[i][j] = new int[3];
 		}
 	}
 }
@@ -61,3 +61,24 @@ YUV FDCT::RGB2YCbCr(BMP &bmp) {
 	}
 	return b;
 }
+
+Block::Block() {
+	data = new int**[BLOCK_SIZE];
+	for (int i = 0; i < BLOCK_SIZE; i++) {
+		data[i] = new int*[BLOCK_SIZE];
+		for (int j = 0; j < BLOCK_SIZE; j++) {
+			data[i][j] = new int[3];
+		}
+	}
+}
+
+Block::~Block() {
+	for (int i = 0; i < BLOCK_SIZE; i++) {
+		for (int j = 0; j < BLOCK_SIZE; j++) {
+			delete []data[i][j];
+		}
+		delete []data[i];
+	}
+	delete []data;
+}
+
