@@ -1,10 +1,21 @@
 #include <stdio.h>
+#include <cmath>
 #include "fdct.h"
 #include "bmp.h"
 
 using namespace std;
 
-FDCT::FDCT() {}
+const double PI = 2.0 * acos(0);
+
+inline double alpha(int x) {
+    if (x == 0) {
+        return 1.0 / sqrt(2);
+    }
+    return 1.0;
+}
+
+FDCT::FDCT() {
+}
 
 FDCT::~FDCT() {
 
@@ -39,8 +50,6 @@ YUV::~YUV() {
 }
 
 YUV FDCT::RGB2YCbCr(BMP &bmp) {
-
-
 	// initialization
 	YUV b(bmp.width, bmp.height);
 	for (int w = 0; w < bmp.width; w++) {
@@ -62,12 +71,50 @@ YUV FDCT::RGB2YCbCr(BMP &bmp) {
 	return b;
 }
 
+Block** FDCT::fdct(YUV &yuv) {
+    int b_width = yuv.width / 8;
+    int b_height = yuv.height / 8;
+
+    Block **blks = new Block*[b_width];
+    for (int i = 0; i < b_width; i++) {
+        blks[i] = new Block[b_height];
+    }
+
+    for (int i = 0; i < b_width; i++) {
+        for (int j = 0; j < b_height; j++) {
+            blks[i][j].x = i;
+            blks[i][j].y = j;
+            for (int u = 0; u < Block::BLOCK_SIZE; u++) {
+                for (int v = 0; v < Block::BLOCK_SIZE; v++) {
+                    blks[i][j].data[u][v][0] = 0;
+                    blks[i][j].data[u][v][1] = 0;
+                    blks[i][j].data[u][v][2] = 0;
+                    for (int x = 0; x < Block::BLOCK_SIZE; x++) {
+                        for (int y = 0; y < Block::BLOCK_SIZE; y++) {
+                            double cc = cos((2.0 * x + 1.0) * u * PI / 16.0) * cos((2.0 * y + 1.0) * v * PI / 16.0);
+                            blks[i][j].data[u][v][0] += yuv.data[i * Block::BLOCK_SIZE + x][j * Block::BLOCK_SIZE + y][0] * cc;
+                            blks[i][j].data[u][v][1] += yuv.data[i * Block::BLOCK_SIZE + x][j * Block::BLOCK_SIZE + y][1] * cc;
+                            blks[i][j].data[u][v][2] += yuv.data[i * Block::BLOCK_SIZE + x][j * Block::BLOCK_SIZE + y][2] * cc;
+                        }
+                    }
+                    double aa = alpha(u) * alpha(v) / 4.0;
+                    blks[i][j].data[u][v][0] *= aa;
+                    blks[i][j].data[u][v][1] *= aa;
+                    blks[i][j].data[u][v][2] *= aa;
+                }
+            }
+        }
+    }
+
+    return blks;
+}
+
 Block::Block() {
-	data = new int**[BLOCK_SIZE];
+	data = new double**[BLOCK_SIZE];
 	for (int i = 0; i < BLOCK_SIZE; i++) {
-		data[i] = new int*[BLOCK_SIZE];
+		data[i] = new double*[BLOCK_SIZE];
 		for (int j = 0; j < BLOCK_SIZE; j++) {
-			data[i][j] = new int[3];
+			data[i][j] = new double[3];
 		}
 	}
 }

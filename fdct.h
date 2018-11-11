@@ -16,6 +16,17 @@ public:
 };
 
 
+class Block {
+public:
+	static const int BLOCK_SIZE = 8;
+	double*** data;
+	int x;
+	int y;
+	Block();
+	~Block();
+};
+
+
 class FDCT {
 public:
 	FDCT();
@@ -24,18 +35,8 @@ public:
 	YUV RGB2YCbCr(BMP &bmp);
 
 	// TODO: implement here
-	void fdct(YUV &b);
+	Block** fdct(YUV &yuv);
 
-};
-
-class Block {
-public:
-	static const int BLOCK_SIZE = 8;
-	int*** data;
-	int x;
-	int y;
-	Block();
-	~Block();
 };
 
 #endif
