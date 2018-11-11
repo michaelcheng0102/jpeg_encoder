@@ -10,13 +10,13 @@ FDCT::~FDCT() {
 
 }
 
-Block::Block() {
+YUV::YUV() {
 	width = 0;
 	height = 0;
 	data = NULL;
 }
 
-Block::Block(int w, int h) {
+YUV::YUV(int w, int h) {
 	width = w;
 	height = h;
 	data = new int**[width];
@@ -28,7 +28,7 @@ Block::Block(int w, int h) {
 	}
 }
 
-Block::~Block() {
+YUV::~YUV() {
 	for (int i = 0; i < width; i++) {
 		for (int j = 0; j < height; j++) {
 			delete []data[i][j];
@@ -38,11 +38,11 @@ Block::~Block() {
 	delete []data;
 }
 
-Block FDCT::RGB2YCbCr(BMP &bmp) {
+YUV FDCT::RGB2YCbCr(BMP &bmp) {
 
 
 	// initialization
-	Block b(bmp.width, bmp.height);
+	YUV b(bmp.width, bmp.height);
 	for (int w = 0; w < bmp.width; w++) {
 		for (int h = 0; h < bmp.height; h++) {
 			b.data[w][h][0] = 2990 * (int) bmp.data[w][h][0]

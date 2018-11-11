@@ -4,12 +4,12 @@
 
 
 
-class Block {
+class YUV {
 
 public:
-	Block();
-	Block(int width, int height);
-	~Block();
+	YUV();
+	YUV(int width, int height);
+	~YUV();
 
 	int*** data;
 	int width;
@@ -23,8 +23,8 @@ public:
 	FDCT();
 	~FDCT();
 
-	Block RGB2YCbCr(BMP &bmp);
-	void FDCT(Block &b);
+	YUV RGB2YCbCr(BMP &bmp);
+	void fdct(YUV &b);
 
 };
 
