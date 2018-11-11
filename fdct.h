@@ -24,6 +24,7 @@ public:
 	~FDCT();
 
 	Block RGB2YCbCr(BMP &bmp);
+	void FDCT(Block &b);
 
 };
 
