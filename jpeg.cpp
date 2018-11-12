@@ -43,6 +43,24 @@ void JPEG::RGB2YCbCr(YUV& yuv, const BMP &bmp) {
 	}
 }
 
+void JPEG::category_encode(int& code, int& size) {
+	unsigned absc = abs(code);
+	unsigned mask = (1 << 15);
+	int i = 15;
+	if (absc == 0) {
+		size = 0;
+		return;
+	}
+	while (i && !(absc & mask)) {
+		mask >>= 1;
+		i--;
+	}
+	size = i + 1;
+	if (code < 0) {
+		code = (1 << size) - absc - 1;
+	}
+}
+
 void JPEG::fdct(double f[BLOCK_SIZE][BLOCK_SIZE], const int* const* yuv_data, int st_x, int st_y) {
 	for (int u = 0; u < BLOCK_SIZE; u++) {
 		for (int v = 0; v < BLOCK_SIZE; v++) {
@@ -79,6 +97,69 @@ void JPEG::quantize(int f1[BLOCK_SIZE][BLOCK_SIZE], const double f2[BLOCK_SIZE][
 }
 
 void JPEG::zigzag(int zz[BLOCK_SIZE * BLOCK_SIZE], const int f[BLOCK_SIZE][BLOCK_SIZE]) {
+	int dx[2] = {-1, 1}, dy[2] = {1, -1};
+	int dir = 0;
+	int idx = 0;
+	bool flag = false;
+	int i = 0, j = 0;
+
+	while (1) {
+		zz[idx++] = f[i][j];
+		if (i == BLOCK_SIZE && j == BLOCK_SIZE) {
+			break;
+		}
+
+		if (idx < 36) {
+			if (i == 0 && !flag) {
+				j += 1;
+				dir = (dir + 1) % 2;
+				flag = true;
+			} else if (j == 0 && !flag) {
+				i += 1;
+				dir = (dir + 1) % 2;
+				flag = true;
+			} else {
+				i += dx[dir];
+				j += dy[dir];
+				flag = false;
+			}
+		} else {
+			if (i == BLOCK_SIZE && !flag) {
+				j += 1;
+				dir = (dir + 1) % 2;
+				flag = true;
+			} else if (j == BLOCK_SIZE && !flag) {
+				i += 1;
+				dir = (dir + 1) % 2;
+				flag = true;
+			} else {
+				i += dx[dir];
+				j += dy[dir];
+				flag = false;
+			}
+		}
+	}
+}
+
+int JPEG::rle(RLE rle_list[BLOCK_SIZE * BLOCK_SIZE], int& eob, const int zz[BLOCK_SIZE * BLOCK_SIZE]) {
+	int idx = 0;
+	int cnt_zero = 0;
+	eob = 0;
+	for (int i = 0; i < BLOCK_SIZE * BLOCK_SIZE; i++) {
+		if (zz[i] == 0 && cnt_zero < 15) {
+			cnt_zero++;
+		} else {
+			int code = zz[i], size = 0;
+			category_encode(code, size);
+			rle_list[idx].run_len = cnt_zero;
+			rle_list[idx].code_size = size;
+			rle_list[idx].code_data = code;
+			cnt_zero = 0;
+			idx++;
+			if (size != 0) eob = idx;
+		}
+	}
+	return idx;
 }
 
 void JPEG::go_encode_block(Block& blk, int& dc, const int* const* yuv_data, int st_x, int st_y) {
@@ -87,11 +168,26 @@ void JPEG::go_encode_block(Block& blk, int& dc, const int* const* yuv_data, int 
 	fdct(f, yuv_data, st_x, st_y);
 	quantize(blk.data, f);
 
-	int diff = blk.data[0][0] - dc;
-	dc = blk.data[0][0];
-
 	int zz[BLOCK_SIZE * BLOCK_SIZE];
 	zigzag(zz, blk.data);
+
+	// DC
+	int diff = zz[0] - dc, size = 0;
+	dc = zz[0];
+	category_encode(diff, size);
+	// TODO: huffman DC
+
+	// AC
+	RLE rle_list[BLOCK_SIZE * BLOCK_SIZE];
+	int eob = 0;
+	int rle_idx = rle(rle_list, eob, zz);
+	if (zz[BLOCK_SIZE - 1] == 0) { // eob
+		rle_list[eob].run_len = 0;
+		rle_list[eob].code_size = 0;
+		rle_list[eob].code_data = 0;
+		rle_idx = eob + 1;
+	}
+	// TODO: huffman AC
 }
 
 void JPEG::encode(YUV &yuv) {
