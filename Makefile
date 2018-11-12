@@ -13,7 +13,7 @@ all: $(TARGET)
 jpeg_encoder: $(ENCODER_OBJS) main.cpp
 	$(CXX) $(CXX_FLAGS) $^ -o $@ $(CXX_LIBS)
 
-%.o: %.cpp $(DEPS)
+%.o: %.cpp %.h $(DEPS)
 	$(CXX) -c $< $(CXX_FLAGS)
 
 clean:
