@@ -81,20 +81,17 @@ void JPEG::quantize(int f1[BLOCK_SIZE][BLOCK_SIZE], const double f2[BLOCK_SIZE][
 void JPEG::zigzag(int zz[BLOCK_SIZE * BLOCK_SIZE], const int f[BLOCK_SIZE][BLOCK_SIZE]) {
 }
 
-int JPEG::go_encode_block(Block& blk, int** yuv_data, int st_x, int st_y) {
+void JPEG::go_encode_block(Block& blk, int& dc, int** yuv_data, int st_x, int st_y) {
 	double f[BLOCK_SIZE][BLOCK_SIZE];
 
 	fdct(f, yuv_data, st_x, st_y);
 	quantize(blk.data, f);
 
-	//int new_dc = blk.data[0][0];
-	//blk.data[0][0] -= old_dc;
+	int diff = blk.data[0][0] - dc;
+	dc = blk.data[0][0];
 
 	int zz[BLOCK_SIZE * BLOCK_SIZE];
 	zigzag(zz, blk.data);
-
-	// FIXME to new_dc
-	return 0;
 }
 
 void JPEG::encode(YUV &yuv) {
@@ -116,6 +113,7 @@ void JPEG::encode(YUV &yuv) {
 		blks_cr[i] = new Block[b_height];
 	}
 
+	int dc[3] = {0};
 	for (int i = 0; i < b_width; i++) {
 		for (int j = 0; j < b_height; j++) {
 			blks_y[i][j].x = i;
@@ -126,20 +124,22 @@ void JPEG::encode(YUV &yuv) {
 			blks_cr[i][j].y = j;
 
 			// Y
-			go_encode_block(blks_y[i][j], yuv.y, i * BLOCK_SIZE, j * BLOCK_SIZE);
+			go_encode_block(blks_y[i][j], dc[0], yuv.y, i * BLOCK_SIZE, j * BLOCK_SIZE);
 
 			// Cb
-			go_encode_block(blks_cb[i][j], yuv.cb, i * BLOCK_SIZE, j * BLOCK_SIZE);
+			go_encode_block(blks_cb[i][j], dc[1], yuv.cb, i * BLOCK_SIZE, j * BLOCK_SIZE);
 
 			// Cr
-			go_encode_block(blks_cb[i][j], yuv.cr, i * BLOCK_SIZE, j * BLOCK_SIZE);
+			go_encode_block(blks_cb[i][j], dc[2], yuv.cr, i * BLOCK_SIZE, j * BLOCK_SIZE);
 		}
 	}
 }
 
 void JPEG::convert_bmp_to_jpg(const char* input_path, const char* output_path) {
 	BMP bmp;
-	bmp.read(input_path);
+	if (!bmp.read(input_path)) {
+		return;
+	}
 
 	YUV yuv(bmp.width, bmp.height);
 
