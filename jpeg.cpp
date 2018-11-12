@@ -43,7 +43,7 @@ void JPEG::RGB2YCbCr(YUV& yuv, const BMP &bmp) {
 	}
 }
 
-void JPEG::fdct(double f[BLOCK_SIZE][BLOCK_SIZE], int** yuv_data, int st_x, int st_y) {
+void JPEG::fdct(double f[BLOCK_SIZE][BLOCK_SIZE], const int* const* yuv_data, int st_x, int st_y) {
 	for (int u = 0; u < BLOCK_SIZE; u++) {
 		for (int v = 0; v < BLOCK_SIZE; v++) {
 			f[u][v] = 0.0;
@@ -81,7 +81,7 @@ void JPEG::quantize(int f1[BLOCK_SIZE][BLOCK_SIZE], const double f2[BLOCK_SIZE][
 void JPEG::zigzag(int zz[BLOCK_SIZE * BLOCK_SIZE], const int f[BLOCK_SIZE][BLOCK_SIZE]) {
 }
 
-void JPEG::go_encode_block(Block& blk, int& dc, int** yuv_data, int st_x, int st_y) {
+void JPEG::go_encode_block(Block& blk, int& dc, const int* const* yuv_data, int st_x, int st_y) {
 	double f[BLOCK_SIZE][BLOCK_SIZE];
 
 	fdct(f, yuv_data, st_x, st_y);

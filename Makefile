@@ -10,8 +10,8 @@ ENCODER_OBJS = bmp.o jpeg.o yuv.o
 
 all: $(TARGET)
 
-jpeg_encoder: $(ENCODER_OBJS)
-	$(CXX) $(CXX_FLAGS) $^ main.cpp -o $@ $(CXX_LIBS)
+jpeg_encoder: $(ENCODER_OBJS) main.cpp
+	$(CXX) $(CXX_FLAGS) $^ -o $@ $(CXX_LIBS)
 
 %.o: %.cpp $(DEPS)
 	$(CXX) -c $< $(CXX_FLAGS)
