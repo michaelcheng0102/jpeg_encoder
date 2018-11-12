@@ -182,6 +182,13 @@ void JPEG::encode(YUV &yuv) {
 	}
 }
 
+void JPEG::convert_bmp_to_jpg(const BMP& bmp) {
+	YUV yuv(bmp.width, bmp.height);
+
+	RGB2YCbCr(yuv, bmp);
+	encode(yuv);
+}
+
 Block::Block() {
 }
 

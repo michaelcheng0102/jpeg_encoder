@@ -7,7 +7,7 @@
 class YUV {
 public:
 	YUV();
-    YUV(int w, int h);
+	YUV(int w, int h);
 	~YUV();
 
 	int** y;
@@ -32,11 +32,8 @@ public:
 
 
 class JPEG {
-public:
-	JPEG();
-	~JPEG();
-
-	void RGB2YCbCr(YUV& yuv, const BMP &bmp);
+private:
+	void RGB2YCbCr(YUV& yuv, const BMP& bmp);
 
 	void fdct(double f[8][8], int** yuv_data, int st_x, int st_y);
 	void quantize(int f1[8][8], const double f2[8][8]);
@@ -45,6 +42,12 @@ public:
 	int go_encode_block(Block& blk, int** yuv_data, int st_x, int st_y);
 
 	void encode(YUV &yuv);
+
+public:
+	JPEG();
+	~JPEG();
+
+	void convert_bmp_to_jpg(const BMP& bmp);
 };
 
 #endif
