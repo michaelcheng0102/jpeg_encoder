@@ -2,22 +2,8 @@
 #define __JPEG_H__
 
 #include "bmp.h"
+#include "yuv.h"
 #include "constants.h"
-
-
-class YUV {
-public:
-	YUV();
-	YUV(int w, int h);
-	~YUV();
-
-	int** y;
-	int** cb;
-	int** cr;
-
-	int width;
-	int height;
-};
 
 
 class Block {
@@ -47,7 +33,7 @@ public:
 	JPEG();
 	~JPEG();
 
-	void convert_bmp_to_jpg(const BMP& bmp);
+	void convert_bmp_to_jpg(const char* input_path, const char* output_path);
 };
 
 #endif
