@@ -3,10 +3,9 @@
 #include <cassert>
 #include "jpeg.h"
 #include "bmp.h"
+#include "constants.h"
 
 using namespace std;
-
-const double PI = 2.0 * acos(0);
 
 inline double alpha(int x) {
 	if (x == 0) {
@@ -88,12 +87,12 @@ void JPEG::RGB2YCbCr(YUV& yuv, const BMP &bmp) {
 	}
 }
 
-void JPEG::fdct(double f[8][8], int** yuv_data, int st_x, int st_y) {
-	for (int u = 0; u < Block::BLOCK_SIZE; u++) {
-		for (int v = 0; v < Block::BLOCK_SIZE; v++) {
+void JPEG::fdct(double f[BLOCK_SIZE][BLOCK_SIZE], int** yuv_data, int st_x, int st_y) {
+	for (int u = 0; u < BLOCK_SIZE; u++) {
+		for (int v = 0; v < BLOCK_SIZE; v++) {
 			f[u][v] = 0.0;
-			for (int x = 0; x < Block::BLOCK_SIZE; x++) {
-				for (int y = 0; y < Block::BLOCK_SIZE; y++) {
+			for (int x = 0; x < BLOCK_SIZE; x++) {
+				for (int y = 0; y < BLOCK_SIZE; y++) {
 					double cc = cos((2.0 * x + 1.0) * u * PI / 16.0) * cos((2.0 * y + 1.0) * v * PI / 16.0);
 					f[u][v] += yuv_data[st_x + x][st_y + y] * cc;
 				}
@@ -104,8 +103,8 @@ void JPEG::fdct(double f[8][8], int** yuv_data, int st_x, int st_y) {
 	}
 }
 
-void JPEG::quantize(int f1[8][8], const double f2[8][8]) {
-	static const int Qmatrix[8][8] = {
+void JPEG::quantize(int f1[BLOCK_SIZE][BLOCK_SIZE], const double f2[BLOCK_SIZE][BLOCK_SIZE]) {
+	static const int Qmatrix[BLOCK_SIZE][BLOCK_SIZE] = {
 		{16, 11, 10, 16, 24, 40, 51, 61},
 		{12, 12, 14, 19, 26, 58, 60, 55},
 		{14, 13, 16, 24, 40, 57, 69, 56},
@@ -116,18 +115,18 @@ void JPEG::quantize(int f1[8][8], const double f2[8][8]) {
 		{72, 92, 95, 98, 112, 100, 103, 99}
 	};
 
-	for (int u = 0; u < Block::BLOCK_SIZE; u++) {
-		for (int v = 0; v < Block::BLOCK_SIZE; v++) {
+	for (int u = 0; u < BLOCK_SIZE; u++) {
+		for (int v = 0; v < BLOCK_SIZE; v++) {
 			f1[u][v] = f2[u][v] / Qmatrix[u][v];
 		}
 	}
 }
 
-void JPEG::zigzag(int zz[64], const int f[8][8]) {
+void JPEG::zigzag(int zz[BLOCK_SIZE * BLOCK_SIZE], const int f[BLOCK_SIZE][BLOCK_SIZE]) {
 }
 
 int JPEG::go_encode_block(Block& blk, int** yuv_data, int st_x, int st_y) {
-	double f[8][8];
+	double f[BLOCK_SIZE][BLOCK_SIZE];
 
 	fdct(f, yuv_data, st_x, st_y);
 	quantize(blk.data, f);
@@ -135,7 +134,7 @@ int JPEG::go_encode_block(Block& blk, int** yuv_data, int st_x, int st_y) {
 	//int new_dc = blk.data[0][0];
 	//blk.data[0][0] -= old_dc;
 
-	int zz[64];
+	int zz[BLOCK_SIZE * BLOCK_SIZE];
 	zigzag(zz, blk.data);
 
 	// FIXME to new_dc
@@ -143,8 +142,8 @@ int JPEG::go_encode_block(Block& blk, int** yuv_data, int st_x, int st_y) {
 }
 
 void JPEG::encode(YUV &yuv) {
-	int b_width = yuv.width / 8;
-	int b_height = yuv.height / 8;
+	int b_width = yuv.width / BLOCK_SIZE;
+	int b_height = yuv.height / BLOCK_SIZE;
 
 	Block **blks_y = new Block*[b_width];
 	for (int i = 0; i < b_width; i++) {
@@ -171,13 +170,13 @@ void JPEG::encode(YUV &yuv) {
 			blks_cr[i][j].y = j;
 
 			// Y
-			go_encode_block(blks_y[i][j], yuv.y, i * Block::BLOCK_SIZE, j * Block::BLOCK_SIZE);
+			go_encode_block(blks_y[i][j], yuv.y, i * BLOCK_SIZE, j * BLOCK_SIZE);
 
 			// Cb
-			go_encode_block(blks_cb[i][j], yuv.cb, i * Block::BLOCK_SIZE, j * Block::BLOCK_SIZE);
+			go_encode_block(blks_cb[i][j], yuv.cb, i * BLOCK_SIZE, j * BLOCK_SIZE);
 
 			// Cr
-			go_encode_block(blks_cb[i][j], yuv.cr, i * Block::BLOCK_SIZE, j * Block::BLOCK_SIZE);
+			go_encode_block(blks_cb[i][j], yuv.cr, i * BLOCK_SIZE, j * BLOCK_SIZE);
 		}
 	}
 }
