@@ -1,8 +1,12 @@
 #include <stdio.h>
 #include <cmath>
 #include <cassert>
+#include <vector>
+#include <algorithm>
 #include "jpeg.h"
 #include "bmp.h"
+#include "quantable.h"
+#include "huffman.h"
 #include "constants.h"
 
 using namespace std;
@@ -15,6 +19,19 @@ inline double alpha(int x) {
 }
 
 JPEG::JPEG() {
+	for (int i = 0; i < 16; i++) {
+		qtab[i] = NULL;
+		hdc[i] = NULL;
+		hac[i] = NULL;
+	}
+
+	qtab[0] = new QuanTable(STD_QUAN_TABLE);
+
+	hdc[YUV_ENUM::YUV_Y] = new Huffman(STD_HUFTAB_LUMIN_DC);
+	hdc[YUV_ENUM::YUV_C] = new Huffman(STD_HUFTAB_CHROM_DC);
+
+	hac[YUV_ENUM::YUV_Y] = new Huffman(STD_HUFTAB_LUMIN_AC);
+	hac[YUV_ENUM::YUV_C] = new Huffman(STD_HUFTAB_CHROM_AC);
 }
 
 JPEG::~JPEG() {
@@ -162,7 +179,7 @@ int JPEG::rle(RLE rle_list[BLOCK_SIZE * BLOCK_SIZE], int& eob, const int zz[BLOC
 	return idx;
 }
 
-void JPEG::go_encode_block(Block& blk, int& dc, const int* const* yuv_data, int st_x, int st_y) {
+void JPEG::go_encode_block(Block& blk, int& dc, const int* const* yuv_data, int st_x, int st_y, YUV_ENUM type) {
 	double f[BLOCK_SIZE][BLOCK_SIZE];
 
 	fdct(f, yuv_data, st_x, st_y);
@@ -173,9 +190,13 @@ void JPEG::go_encode_block(Block& blk, int& dc, const int* const* yuv_data, int 
 
 	// DC
 	int diff = zz[0] - dc, size = 0;
+	pair<unsigned int, int> e;
+
 	dc = zz[0];
 	category_encode(diff, size);
-	// TODO: huffman DC
+	e = hdc[type]->encode(size);
+	blk.write_bit(e.first, e.second);
+	blk.write_bit(diff, size);
 
 	// AC
 	RLE rle_list[BLOCK_SIZE * BLOCK_SIZE];
@@ -220,13 +241,13 @@ void JPEG::encode(YUV &yuv) {
 			blks_cr[i][j].y = j;
 
 			// Y
-			go_encode_block(blks_y[i][j], dc[0], yuv.y, i * BLOCK_SIZE, j * BLOCK_SIZE);
+			go_encode_block(blks_y[i][j], dc[0], yuv.y, i * BLOCK_SIZE, j * BLOCK_SIZE, YUV_ENUM::YUV_Y);
 
 			// Cb
-			go_encode_block(blks_cb[i][j], dc[1], yuv.cb, i * BLOCK_SIZE, j * BLOCK_SIZE);
+			go_encode_block(blks_cb[i][j], dc[1], yuv.cb, i * BLOCK_SIZE, j * BLOCK_SIZE, YUV_ENUM::YUV_C);
 
 			// Cr
-			go_encode_block(blks_cb[i][j], dc[2], yuv.cr, i * BLOCK_SIZE, j * BLOCK_SIZE);
+			go_encode_block(blks_cb[i][j], dc[2], yuv.cr, i * BLOCK_SIZE, j * BLOCK_SIZE, YUV_ENUM::YUV_C);
 		}
 	}
 }
@@ -246,7 +267,29 @@ void JPEG::convert_bmp_to_jpg(const char* input_path, const char* output_path) {
 }
 
 Block::Block() {
+	buf_bit_idx = 8;
 }
 
 Block::~Block() {
+}
+
+void Block::write_bit(int n, int bitsize) {
+	int write_bit = 0;
+	while (write_bit < bitsize) {
+		if (buf_bit_idx == 8) {
+			buffer.push_back((unsigned char)0);
+			buf_bit_idx = 0;
+		}
+
+		int now_write = min(bitsize - write_bit, 8 - buf_bit_idx);
+		int shift = bitsize - write_bit - now_write;
+		int shift2 = 8 - now_write - buf_bit_idx;
+		int bitmask = (1 << now_write) - 1;
+
+		unsigned char x = (unsigned char)((bitmask & (n >> shift)) << shift2);
+		buffer[buffer.size() - 1] = buffer[buffer.size() - 1] | x;
+
+		buf_bit_idx += now_write;
+		write_bit += now_write;
+	}
 }

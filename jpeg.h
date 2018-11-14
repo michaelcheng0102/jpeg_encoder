@@ -1,10 +1,13 @@
 #ifndef __JPEG_H__
 #define __JPEG_H__
 
+#include <vector>
+
 #include "bmp.h"
 #include "yuv.h"
 #include "constants.h"
-
+#include "quantable.h"
+#include "huffman.h"
 
 class Block {
 public:
@@ -12,8 +15,14 @@ public:
 	int type;
 	int x;
 	int y;
+
+	int buf_bit_idx;
+	std::vector<unsigned char> buffer;
+
 	Block();
 	~Block();
+
+	void write_bit(int n, int bitsize);
 };
 
 class RLE {
@@ -23,9 +32,12 @@ public:
 	int code_data;
 };
 
-
 class JPEG {
 private:
+	QuanTable* qtab[16];
+	Huffman* hdc[16];
+	Huffman* hac[16];
+
 	void RGB2YCbCr(YUV& yuv, const BMP& bmp);
 
 	void category_encode(int& code, int& size);
@@ -35,7 +47,7 @@ private:
 	void zigzag(int zz[BLOCK_SIZE * BLOCK_SIZE], const int f[BLOCK_SIZE][BLOCK_SIZE]);
 	int rle(RLE rle_list[BLOCK_SIZE * BLOCK_SIZE], int& eob, const int zz[BLOCK_SIZE * BLOCK_SIZE]);
 
-	void go_encode_block(Block& blk, int& dc, const int* const* yuv_data, int st_x, int st_y);
+	void go_encode_block(Block& blk, int& dc, const int* const* yuv_data, int st_x, int st_y, YUV_ENUM type);
 
 	void encode(YUV &yuv);
 
