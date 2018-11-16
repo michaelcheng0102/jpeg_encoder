@@ -180,7 +180,7 @@ int JPEG::rle(RLE rle_list[BLOCK_SIZE * BLOCK_SIZE], int& eob, const int zz[BLOC
 	int idx = 0;
 	int cnt_zero = 0;
 	eob = 0;
-	for (int i = 0; i < BLOCK_SIZE * BLOCK_SIZE && idx < BLOCK_SIZE * BLOCK_SIZE - 1; i++) {
+	for (int i = 1; i < BLOCK_SIZE * BLOCK_SIZE && idx < BLOCK_SIZE * BLOCK_SIZE - 1; i++) {
 		if (zz[i] == 0 && cnt_zero < 15) {
 			cnt_zero++;
 		} else {
@@ -222,7 +222,7 @@ void JPEG::go_encode_block(Block& blk, int& dc, const int* const* yuv_data, int 
 	RLE rle_list[BLOCK_SIZE * BLOCK_SIZE];
 	int eob = 0;
 	int rle_idx = rle(rle_list, eob, zz);
-	if (zz[BLOCK_SIZE - 1] == 0) { // eob
+	if (zz[BLOCK_SIZE * BLOCK_SIZE - 1] == 0) { // eob
 		rle_list[eob].run_len = 0;
 		rle_list[eob].code_size = 0;
 		rle_list[eob].code_data = 0;
@@ -283,6 +283,9 @@ void JPEG::write_to_file(const char* output) {
 
 	fputc(0xff, fp);
 	fputc(0xd8, fp);
+#if DEBUG
+	printf("%02x %02x\n", 0xff, 0xd8);
+#endif
 
 
 	// Quant
@@ -299,11 +302,20 @@ void JPEG::write_to_file(const char* output) {
 		fputc(len >> 8, fp);
 		fputc(len >> 0, fp);
 		fputc(i, fp);
+#if DEBUG
+		printf("%02x %02x %02x %02x %02x", 0xff, 0xdb, len >> 8, len >> 0, i);
+#endif
 
 		zigzag(zz, qtab[i]->table);
 		for (int j = 0; j < BLOCK_SIZE * BLOCK_SIZE; j++) {
 			fputc(zz[j], fp);
+#if DEBUG
+			printf(" %02x", zz[j]);
+#endif
 		}
+#if DEBUG
+		printf("\n");
+#endif
 	}
 
 
@@ -335,6 +347,13 @@ void JPEG::write_to_file(const char* output) {
 	fputc((sample_factor_h << 4) | (sample_factor_v << 0), fp);
 	fputc(YUV_ENUM::YUV_C, fp);
 
+#if DEBUG
+	printf("%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x", 0xff, 0xc0, len >> 8, len >> 0, 8, height >> 8, height >> 0, width >> 8, width >> 0, comp_num);
+	printf(" %02x %02x %02x", 1, (sample_factor_h << 4) | (sample_factor_v << 0), YUV_ENUM::YUV_Y);
+	printf(" %02x %02x %02x", 2, (sample_factor_h << 4) | (sample_factor_v << 0), YUV_ENUM::YUV_C);
+	printf(" %02x %02x %02x", 3, (sample_factor_h << 4) | (sample_factor_v << 0), YUV_ENUM::YUV_C);
+	printf("\n");
+#endif
 
 	// Huffman table AC
 	for (int i = 0; i < 16; i++) {
@@ -351,6 +370,13 @@ void JPEG::write_to_file(const char* output) {
 		fputc(len >> 0, fp);
 		fputc(0x10 | (i & 0x0f), fp); // flag_ac (4 bit) | index (4 bit)
 		fwrite(hac[i]->table, len - 3, 1, fp);
+#if DEBUG
+		printf("%02x %02x %02x %02x %02x", 0xff, 0xc4, len >> 8, len >> 0, 0x10 | (i & 0x0f));
+		for (int j = 0; j < len - 3; j++) {
+			printf(" %02x", hac[i]->table[j]);
+		}
+		printf("\n");
+#endif
 	}
 
 
@@ -369,6 +395,13 @@ void JPEG::write_to_file(const char* output) {
 		fputc(len >> 0, fp);
 		fputc(0x00 | (i & 0x0f), fp); // flag_ac (4 bit) | index (4 bit)
 		fwrite(hdc[i]->table, len - 3, 1, fp);
+#if DEBUG
+		printf("%02x %02x %02x %02x %02x", 0xff, 0xc4, len >> 8, len >> 0, 0x00 | (i & 0x0f));
+		for (int j = 0; j < len - 3; j++) {
+			printf(" %02x", hdc[i]->table[j]);
+		}
+		printf("\n");
+#endif
 	}
 
 
@@ -392,6 +425,14 @@ void JPEG::write_to_file(const char* output) {
 	fputc(0x00, fp);
 	fputc(0x00, fp);
 	fputc(0x00, fp);
+
+#if DEBUG
+	printf("%02x %02x %02x %02x %02x", 0xff, 0xda, len >> 8, len >> 0, comp_num);
+	printf(" %02x %02x", 1, (YUV_ENUM::YUV_Y << 4) | (YUV_ENUM::YUV_Y << 0));
+	printf(" %02x %02x", 2, (YUV_ENUM::YUV_C << 4) | (YUV_ENUM::YUV_C << 0));
+	printf(" %02x %02x\n", 3, (YUV_ENUM::YUV_C << 4) | (YUV_ENUM::YUV_C << 0));
+	printf("%02x %02x %02x\n", 0, 0, 0);
+#endif
 
 
 	// Data

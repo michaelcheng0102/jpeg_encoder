@@ -1,7 +1,7 @@
 TARGET = jpeg_encoder
 CXX = g++
 CXX_LIBS = -lpthread
-CXX_FLAGS = -O2 --std=c++11
+CXX_FLAGS = -O2 --std=c++11 -DDEBUG
 DEPS = constants.h
 
 ENCODER_OBJS = bmp.o jpeg.o yuv.o quantable.o huffman.o
