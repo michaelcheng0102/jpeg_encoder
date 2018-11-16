@@ -9,15 +9,15 @@ enum YUV_ENUM {
 class YUV {
 public:
 	YUV();
-	YUV(int w, int h);
+	YUV(int h, int w);
 	~YUV();
 
 	int** y;
 	int** cb;
 	int** cr;
 
-	int width;
 	int height;
+	int width;
 };
 
 #endif

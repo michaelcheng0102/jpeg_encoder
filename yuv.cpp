@@ -11,38 +11,38 @@ YUV::YUV() {
 	cr = NULL;
 }
 
-YUV::YUV(int w, int h) {
-	width = w;
+YUV::YUV(int h, int w) {
 	height = h;
+	width = w;
 
-	y = new int*[width];
-	for (int i = 0; i < width; i++) {
-		y[i] = new int[height];
+	y = new int*[height];
+	for (int i = 0; i < height; i++) {
+		y[i] = new int[width];
 	}
 
-	cb = new int*[width];
-	for (int i = 0; i < width; i++) {
-		cb[i] = new int[height];
+	cb = new int*[height];
+	for (int i = 0; i < height; i++) {
+		cb[i] = new int[width];
 	}
 
-	cr = new int*[width];
-	for (int i = 0; i < width; i++) {
-		cr[i] = new int[height];
+	cr = new int*[height];
+	for (int i = 0; i < height; i++) {
+		cr[i] = new int[width];
 	}
 }
 
 YUV::~YUV() {
-	for (int i = 0; i < width; i++) {
+	for (int i = 0; i < height; i++) {
 		delete []y[i];
 	}
 	delete []y;
 
-	for (int i = 0; i < width; i++) {
+	for (int i = 0; i < height; i++) {
 		delete []cb[i];
 	}
 	delete []cb;
 
-	for (int i = 0; i < width; i++) {
+	for (int i = 0; i < height; i++) {
 		delete []cr[i];
 	}
 	delete []cr;

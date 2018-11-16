@@ -13,8 +13,6 @@ class Block {
 public:
 	int data[BLOCK_SIZE][BLOCK_SIZE];
 	int type;
-	int x;
-	int y;
 
 	int buf_bit_idx;
 	std::vector<unsigned char> buffer;

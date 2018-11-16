@@ -5,11 +5,11 @@ class BMP {
 public:
 	unsigned char*** data;
 
-	int width_ori;
 	int height_ori;
+	int width_ori;
 
-	int width;
 	int height;
+	int width;
 
 	BMP();
 	~BMP();

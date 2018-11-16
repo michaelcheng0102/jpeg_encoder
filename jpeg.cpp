@@ -237,34 +237,27 @@ void JPEG::go_encode_block(Block& blk, int& dc, const int* const* yuv_data, int 
 }
 
 void JPEG::encode(YUV &yuv) {
-	int b_width = yuv.width / BLOCK_SIZE;
-	int b_height = yuv.height / BLOCK_SIZE;
+	int b_width = width / BLOCK_SIZE;
+	int b_height = height / BLOCK_SIZE;
 
-	blks_y.resize(b_width);
-	for (int i = 0; i < b_width; i++) {
-		blks_y[i].resize(b_height);
+	blks_y.resize(b_height);
+	for (int i = 0; i < b_height; i++) {
+		blks_y[i].resize(b_width);
 	}
 
-	blks_cb.resize(b_width);
-	for (int i = 0; i < b_width; i++) {
-		blks_cb[i].resize(b_height);
+	blks_cb.resize(b_height);
+	for (int i = 0; i < b_height; i++) {
+		blks_cb[i].resize(b_width);
 	}
 
-	blks_cr.resize(b_width);
-	for (int i = 0; i < b_width; i++) {
-		blks_cr[i].resize(b_height);
+	blks_cr.resize(b_height);
+	for (int i = 0; i < b_height; i++) {
+		blks_cr[i].resize(b_width);
 	}
 
 	int dc[3] = {0};
-	for (int i = 0; i < b_width; i++) {
-		for (int j = 0; j < b_height; j++) {
-			blks_y[i][j].x = i;
-			blks_y[i][j].y = j;
-			blks_cb[i][j].x = i;
-			blks_cb[i][j].y = j;
-			blks_cr[i][j].x = i;
-			blks_cr[i][j].y = j;
-
+	for (int i = 0; i < b_height; i++) {
+		for (int j = 0; j < b_width; j++) {
 			// Y
 			go_encode_block(blks_y[i][j], dc[0], yuv.y, i * BLOCK_SIZE, j * BLOCK_SIZE, YUV_ENUM::YUV_Y);
 
@@ -329,10 +322,10 @@ void JPEG::write_to_file(const char* output) {
 
 	// SOF0
 	const unsigned char comp_num = 3;
-	const unsigned char sample_factor_v1 = 2;
-	const unsigned char sample_factor_h1 = 2;
-	const unsigned char sample_factor_v2 = 2;
-	const unsigned char sample_factor_h2 = 2;
+	const unsigned char sample_factor_v1 = 1;
+	const unsigned char sample_factor_h1 = 1;
+	const unsigned char sample_factor_v2 = 1;
+	const unsigned char sample_factor_h2 = 1;
 	len = 2 + 1 + 2 + 2 + 1 + 3 * comp_num;
 	fputc(0xff, fp);
 	fputc(0xc0, fp);
@@ -443,13 +436,15 @@ void JPEG::write_to_file(const char* output) {
 	printf(" %02x %02x", 1, (YUV_ENUM::YUV_Y << 4) | (YUV_ENUM::YUV_Y << 0));
 	printf(" %02x %02x", 2, (YUV_ENUM::YUV_C << 4) | (YUV_ENUM::YUV_C << 0));
 	printf(" %02x %02x\n", 3, (YUV_ENUM::YUV_C << 4) | (YUV_ENUM::YUV_C << 0));
-	printf("%02x %02x %02x\n", 0, 0, 0);
+	printf("%02x %02x %02x\n", 0, 0x3f, 0);
 #endif
 
 
 	// Data
-	for (int i = 0; i < (int)blks_y.size(); i++) {
-		for (int j = 0; j < (int)blks_y[i].size(); j++) {
+	int b_height = height / BLOCK_SIZE;
+	int b_width = width / BLOCK_SIZE;
+	for (int i = 0; i < b_height; i++) {
+		for (int j = 0; j < b_width; j++) {
 			// Y
 			for (int k = 0; k < (int)blks_y[i][j].buffer.size(); k++) {
 				int bitsize = (k == blks_y[i][j].buffer.size() - 1) ? blks_y[i][j].buf_bit_idx : 8;
@@ -485,7 +480,7 @@ void JPEG::convert_bmp_to_jpg(const char* input_path, const char* output_path) {
 		return;
 	}
 
-	YUV yuv(bmp.width, bmp.height);
+	YUV yuv(bmp.height, bmp.width);
 
 	RGB2YCbCr(yuv, bmp);
 	encode(yuv);
