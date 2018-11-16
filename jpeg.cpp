@@ -18,7 +18,7 @@ inline double alpha(int x) {
 	return 1.0;
 }
 
-void write_byte(unsigned char c, FILE* fp, bool flush = false) {
+void write_byte(unsigned char c, int bitsize, FILE* fp, bool flush = false) {
 	static unsigned char x = 0;
 	static int idx = 0;
 
@@ -32,7 +32,7 @@ void write_byte(unsigned char c, FILE* fp, bool flush = false) {
 		return;
 	}
 
-	for (int i = 0; i < 8; i++) {
+	for (int i = 0; i < bitsize; i++) {
 		x |= (((c >> (8 - i - 1)) & 0x1) << (8 - idx - 1));
 		idx++;
 
@@ -51,8 +51,8 @@ JPEG::JPEG() {
 		hac[i] = NULL;
 	}
 
-	qtab[YUV_ENUM::YUV_Y] = new QuanTable(STD_QUAN_TABLE);
-	qtab[YUV_ENUM::YUV_C] = new QuanTable(STD_QUAN_TABLE);
+	qtab[YUV_ENUM::YUV_Y] = new QuanTable(STD_QUAN_TABLE_LUMIN);
+	qtab[YUV_ENUM::YUV_C] = new QuanTable(STD_QUAN_TABLE_CHROM);
 
 	hdc[YUV_ENUM::YUV_Y] = new Huffman(STD_HUFTAB_LUMIN_DC);
 	hdc[YUV_ENUM::YUV_C] = new Huffman(STD_HUFTAB_CHROM_DC);
@@ -272,7 +272,7 @@ void JPEG::encode(YUV &yuv) {
 			go_encode_block(blks_cb[i][j], dc[1], yuv.cb, i * BLOCK_SIZE, j * BLOCK_SIZE, YUV_ENUM::YUV_C);
 
 			// Cr
-			go_encode_block(blks_cb[i][j], dc[2], yuv.cr, i * BLOCK_SIZE, j * BLOCK_SIZE, YUV_ENUM::YUV_C);
+			go_encode_block(blks_cr[i][j], dc[2], yuv.cr, i * BLOCK_SIZE, j * BLOCK_SIZE, YUV_ENUM::YUV_C);
 		}
 	}
 }
@@ -281,6 +281,8 @@ void JPEG::write_to_file(const char* output) {
 	FILE* fp = fopen(output, "wb");
 	int len;
 
+
+	// SOI
 	fputc(0xff, fp);
 	fputc(0xd8, fp);
 #if DEBUG
@@ -289,23 +291,29 @@ void JPEG::write_to_file(const char* output) {
 
 
 	// Quant
+	fputc(0xff, fp);
+	fputc(0xdb, fp);
+	len = 2;
+	for (int i = 0; i < 16; i++) {
+		if (qtab[i] != NULL) {
+			len += (1 + BLOCK_SIZE * BLOCK_SIZE);
+		}
+	}
+	fputc(len >> 8, fp);
+	fputc(len >> 0, fp);
+#if DEBUG
+	printf("%02x %02x %02x %02x", 0xff, 0xdb, len >> 8, len >> 0);
+#endif
+
 	int zz[BLOCK_SIZE * BLOCK_SIZE];
 	for (int i = 0; i < 16; i++) {
 		if (qtab[i] == NULL) {
 			continue;
 		}
-
-		len = 2 + 1 + BLOCK_SIZE * BLOCK_SIZE;
-
-		fputc(0xff, fp);
-		fputc(0xdb, fp);
-		fputc(len >> 8, fp);
-		fputc(len >> 0, fp);
 		fputc(i, fp);
 #if DEBUG
-		printf("%02x %02x %02x %02x %02x", 0xff, 0xdb, len >> 8, len >> 0, i);
+		printf(" %02x", i);
 #endif
-
 		zigzag(zz, qtab[i]->table);
 		for (int j = 0; j < BLOCK_SIZE * BLOCK_SIZE; j++) {
 			fputc(zz[j], fp);
@@ -313,16 +321,18 @@ void JPEG::write_to_file(const char* output) {
 			printf(" %02x", zz[j]);
 #endif
 		}
-#if DEBUG
-		printf("\n");
-#endif
 	}
+#if DEBUG
+	printf("\n");
+#endif
 
 
 	// SOF0
 	const unsigned char comp_num = 3;
-	const unsigned char sample_factor_v = 2;
-	const unsigned char sample_factor_h = 2;
+	const unsigned char sample_factor_v1 = 2;
+	const unsigned char sample_factor_h1 = 2;
+	const unsigned char sample_factor_v2 = 2;
+	const unsigned char sample_factor_h2 = 2;
 	len = 2 + 1 + 2 + 2 + 1 + 3 * comp_num;
 	fputc(0xff, fp);
 	fputc(0xc0, fp);
@@ -336,22 +346,22 @@ void JPEG::write_to_file(const char* output) {
 	fputc(comp_num, fp);
 
 	fputc(1, fp);
-	fputc((sample_factor_h << 4) | (sample_factor_v << 0), fp);
+	fputc((sample_factor_h1 << 4) | (sample_factor_v1 << 0), fp);
 	fputc(YUV_ENUM::YUV_Y, fp);
 
 	fputc(2, fp);
-	fputc((sample_factor_h << 4) | (sample_factor_v << 0), fp);
+	fputc((sample_factor_h2 << 4) | (sample_factor_v2 << 0), fp);
 	fputc(YUV_ENUM::YUV_C, fp);
 
 	fputc(3, fp);
-	fputc((sample_factor_h << 4) | (sample_factor_v << 0), fp);
+	fputc((sample_factor_h2 << 4) | (sample_factor_v2 << 0), fp);
 	fputc(YUV_ENUM::YUV_C, fp);
 
 #if DEBUG
 	printf("%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x", 0xff, 0xc0, len >> 8, len >> 0, 8, height >> 8, height >> 0, width >> 8, width >> 0, comp_num);
-	printf(" %02x %02x %02x", 1, (sample_factor_h << 4) | (sample_factor_v << 0), YUV_ENUM::YUV_Y);
-	printf(" %02x %02x %02x", 2, (sample_factor_h << 4) | (sample_factor_v << 0), YUV_ENUM::YUV_C);
-	printf(" %02x %02x %02x", 3, (sample_factor_h << 4) | (sample_factor_v << 0), YUV_ENUM::YUV_C);
+	printf(" %02x %02x %02x", 1, (sample_factor_h1 << 4) | (sample_factor_v1 << 0), YUV_ENUM::YUV_Y);
+	printf(" %02x %02x %02x", 2, (sample_factor_h2 << 4) | (sample_factor_v2 << 0), YUV_ENUM::YUV_C);
+	printf(" %02x %02x %02x", 3, (sample_factor_h2 << 4) | (sample_factor_v2 << 0), YUV_ENUM::YUV_C);
 	printf("\n");
 #endif
 
@@ -365,6 +375,7 @@ void JPEG::write_to_file(const char* output) {
 		for (int j = 0; j < MAX_HUFFMAN_CODE_LEN; j++) {
 			len += hac[i]->table[j];
 		}
+		fprintf(stderr, "%d\n", len);
 
 		fputc(len >> 8, fp);
 		fputc(len >> 0, fp);
@@ -390,6 +401,7 @@ void JPEG::write_to_file(const char* output) {
 		for (int j = 0; j < MAX_HUFFMAN_CODE_LEN; j++) {
 			len += hdc[i]->table[j];
 		}
+		fprintf(stderr, "%d\n", len);
 
 		fputc(len >> 8, fp);
 		fputc(len >> 0, fp);
@@ -423,7 +435,7 @@ void JPEG::write_to_file(const char* output) {
 	fputc((YUV_ENUM::YUV_C << 4) | (YUV_ENUM::YUV_C << 0), fp);
 
 	fputc(0x00, fp);
-	fputc(0x00, fp);
+	fputc(0x3f, fp);
 	fputc(0x00, fp);
 
 #if DEBUG
@@ -440,21 +452,29 @@ void JPEG::write_to_file(const char* output) {
 		for (int j = 0; j < (int)blks_y[i].size(); j++) {
 			// Y
 			for (int k = 0; k < (int)blks_y[i][j].buffer.size(); k++) {
-				write_byte(blks_y[i][j].buffer[k], fp);
+				int bitsize = (k == blks_y[i][j].buffer.size() - 1) ? blks_y[i][j].buf_bit_idx : 8;
+				write_byte(blks_y[i][j].buffer[k], bitsize, fp);
 			}
 
 			// Cb
 			for (int k = 0; k < (int)blks_cb[i][j].buffer.size(); k++) {
-				write_byte(blks_cb[i][j].buffer[k], fp);
+				int bitsize = (k == blks_cb[i][j].buffer.size() - 1) ? blks_cb[i][j].buf_bit_idx : 8;
+				write_byte(blks_cb[i][j].buffer[k], bitsize, fp);
 			}
 
 			// Cr
 			for (int k = 0; k < (int)blks_cr[i][j].buffer.size(); k++) {
-				write_byte(blks_cr[i][j].buffer[k], fp);
+				int bitsize = (k == blks_cr[i][j].buffer.size() - 1) ? blks_cr[i][j].buf_bit_idx : 8;
+				write_byte(blks_cr[i][j].buffer[k], bitsize, fp);
 			}
 		}
 	}
-	write_byte(0, fp, true);
+	write_byte(0, 8, fp, true);
+
+
+	// EOI
+	fputc(0xff, fp);
+	fputc(0xd9, fp);
 
 	fclose(fp);
 }
@@ -481,15 +501,15 @@ Block::~Block() {
 }
 
 void Block::write_bit(int n, int bitsize) {
-	int write_bit = 0;
-	while (write_bit < bitsize) {
+	int written_bit = 0;
+	while (written_bit < bitsize) {
 		if (buf_bit_idx == 8) {
 			buffer.push_back((unsigned char)0);
 			buf_bit_idx = 0;
 		}
 
-		int now_write = min(bitsize - write_bit, 8 - buf_bit_idx);
-		int shift = bitsize - write_bit - now_write;
+		int now_write = min(bitsize - written_bit, 8 - buf_bit_idx);
+		int shift = bitsize - written_bit - now_write;
 		int shift2 = 8 - now_write - buf_bit_idx;
 		int bitmask = (1 << now_write) - 1;
 
@@ -497,6 +517,6 @@ void Block::write_bit(int n, int bitsize) {
 		buffer[buffer.size() - 1] = buffer[buffer.size() - 1] | x;
 
 		buf_bit_idx += now_write;
-		write_bit += now_write;
+		written_bit += now_write;
 	}
 }

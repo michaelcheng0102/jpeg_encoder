@@ -5,9 +5,6 @@
 
 class HuffmanCodeItem {
 public:
-	int symbol;
-	int freq;
-	int group;
 	int depth;
 	int code;
 };
