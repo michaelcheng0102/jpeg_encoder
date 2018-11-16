@@ -34,6 +34,13 @@ public:
 
 class JPEG {
 private:
+	int width;
+	int height;
+
+	std::vector<std::vector<Block> > blks_y;
+	std::vector<std::vector<Block> > blks_cb;
+	std::vector<std::vector<Block> > blks_cr;
+
 	QuanTable* qtab[16];
 	Huffman* hdc[16];
 	Huffman* hac[16];
@@ -43,13 +50,14 @@ private:
 	void category_encode(int& code, int& size);
 
 	void fdct(double f[BLOCK_SIZE][BLOCK_SIZE], const int* const* yuv_data, int st_x, int st_y);
-	void quantize(int f1[BLOCK_SIZE][BLOCK_SIZE], const double f2[BLOCK_SIZE][BLOCK_SIZE]);
+	void quantize(int f1[BLOCK_SIZE][BLOCK_SIZE], const double f2[BLOCK_SIZE][BLOCK_SIZE], YUV_ENUM type);
 	void zigzag(int zz[BLOCK_SIZE * BLOCK_SIZE], const int f[BLOCK_SIZE][BLOCK_SIZE]);
 	int rle(RLE rle_list[BLOCK_SIZE * BLOCK_SIZE], int& eob, const int zz[BLOCK_SIZE * BLOCK_SIZE]);
 
 	void go_encode_block(Block& blk, int& dc, const int* const* yuv_data, int st_x, int st_y, YUV_ENUM type);
 
 	void encode(YUV &yuv);
+	void write_to_file(const char* output_path);
 
 public:
 	JPEG();

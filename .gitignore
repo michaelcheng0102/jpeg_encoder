@@ -5,3 +5,5 @@
 .*.swp
 
 *.o
+
+jpeg_encoder

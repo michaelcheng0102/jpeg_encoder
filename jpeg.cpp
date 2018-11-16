@@ -18,6 +18,32 @@ inline double alpha(int x) {
 	return 1.0;
 }
 
+void write_byte(unsigned char c, FILE* fp, bool flush = false) {
+	static unsigned char x = 0;
+	static int idx = 0;
+
+	if (flush) {
+		if (idx > 0) {
+			x |= ((1 << (8 - idx)) - 1);
+			fputc(x, fp);
+			x = 0;
+			idx = 0;
+		}
+		return;
+	}
+
+	for (int i = 0; i < 8; i++) {
+		x |= (((c >> (8 - i - 1)) & 0x1) << (8 - idx - 1));
+		idx++;
+
+		if (idx == 8) {
+			fputc(x, fp);
+			x = 0;
+			idx = 0;
+		}
+	}
+}
+
 JPEG::JPEG() {
 	for (int i = 0; i < 16; i++) {
 		qtab[i] = NULL;
@@ -25,7 +51,8 @@ JPEG::JPEG() {
 		hac[i] = NULL;
 	}
 
-	qtab[0] = new QuanTable(STD_QUAN_TABLE);
+	qtab[YUV_ENUM::YUV_Y] = new QuanTable(STD_QUAN_TABLE);
+	qtab[YUV_ENUM::YUV_C] = new QuanTable(STD_QUAN_TABLE);
 
 	hdc[YUV_ENUM::YUV_Y] = new Huffman(STD_HUFTAB_LUMIN_DC);
 	hdc[YUV_ENUM::YUV_C] = new Huffman(STD_HUFTAB_CHROM_DC);
@@ -41,6 +68,8 @@ JPEG::~JPEG() {
 void JPEG::RGB2YCbCr(YUV& yuv, const BMP &bmp) {
 	// check init
 	assert(yuv.width == bmp.width && yuv.height == bmp.height);
+	width = yuv.width;
+	height = yuv.height;
 
 	for (int w = 0; w < bmp.width; w++) {
 		for (int h = 0; h < bmp.height; h++) {
@@ -94,21 +123,10 @@ void JPEG::fdct(double f[BLOCK_SIZE][BLOCK_SIZE], const int* const* yuv_data, in
 	}
 }
 
-void JPEG::quantize(int f1[BLOCK_SIZE][BLOCK_SIZE], const double f2[BLOCK_SIZE][BLOCK_SIZE]) {
-	static const int Qmatrix[BLOCK_SIZE][BLOCK_SIZE] = {
-		{16, 11, 10, 16, 24, 40, 51, 61},
-		{12, 12, 14, 19, 26, 58, 60, 55},
-		{14, 13, 16, 24, 40, 57, 69, 56},
-		{14, 17, 22, 29, 51, 87, 80, 62},
-		{18, 22, 37, 56, 68, 109, 103, 77},
-		{24, 35, 55, 64, 81, 104, 113, 92},
-		{49, 64, 78, 87, 103, 121, 120, 101},
-		{72, 92, 95, 98, 112, 100, 103, 99}
-	};
-
+void JPEG::quantize(int f1[BLOCK_SIZE][BLOCK_SIZE], const double f2[BLOCK_SIZE][BLOCK_SIZE], YUV_ENUM type) {
 	for (int u = 0; u < BLOCK_SIZE; u++) {
 		for (int v = 0; v < BLOCK_SIZE; v++) {
-			f1[u][v] = f2[u][v] / Qmatrix[u][v];
+			f1[u][v] = f2[u][v] / qtab[type]->table[u][v];
 		}
 	}
 }
@@ -162,7 +180,7 @@ int JPEG::rle(RLE rle_list[BLOCK_SIZE * BLOCK_SIZE], int& eob, const int zz[BLOC
 	int idx = 0;
 	int cnt_zero = 0;
 	eob = 0;
-	for (int i = 0; i < BLOCK_SIZE * BLOCK_SIZE; i++) {
+	for (int i = 0; i < BLOCK_SIZE * BLOCK_SIZE && idx < BLOCK_SIZE * BLOCK_SIZE - 1; i++) {
 		if (zz[i] == 0 && cnt_zero < 15) {
 			cnt_zero++;
 		} else {
@@ -173,7 +191,9 @@ int JPEG::rle(RLE rle_list[BLOCK_SIZE * BLOCK_SIZE], int& eob, const int zz[BLOC
 			rle_list[idx].code_data = code;
 			cnt_zero = 0;
 			idx++;
-			if (size != 0) eob = idx;
+			if (size != 0) {
+				eob = idx;
+			}
 		}
 	}
 	return idx;
@@ -183,7 +203,7 @@ void JPEG::go_encode_block(Block& blk, int& dc, const int* const* yuv_data, int 
 	double f[BLOCK_SIZE][BLOCK_SIZE];
 
 	fdct(f, yuv_data, st_x, st_y);
-	quantize(blk.data, f);
+	quantize(blk.data, f, type);
 
 	int zz[BLOCK_SIZE * BLOCK_SIZE];
 	zigzag(zz, blk.data);
@@ -208,26 +228,31 @@ void JPEG::go_encode_block(Block& blk, int& dc, const int* const* yuv_data, int 
 		rle_list[eob].code_data = 0;
 		rle_idx = eob + 1;
 	}
-	// TODO: huffman AC
+
+	for (int i = 0; i < rle_idx; i++) {
+		e = hac[type]->encode((rle_list[i].run_len << 4) | (rle_list[i].code_size << 0));
+		blk.write_bit(e.first, e.second);
+		blk.write_bit(rle_list[i].code_data, rle_list[i].code_size);
+	}
 }
 
 void JPEG::encode(YUV &yuv) {
 	int b_width = yuv.width / BLOCK_SIZE;
 	int b_height = yuv.height / BLOCK_SIZE;
 
-	Block **blks_y = new Block*[b_width];
+	blks_y.resize(b_width);
 	for (int i = 0; i < b_width; i++) {
-		blks_y[i] = new Block[b_height];
+		blks_y[i].resize(b_height);
 	}
 
-	Block **blks_cb = new Block*[b_width];
+	blks_cb.resize(b_width);
 	for (int i = 0; i < b_width; i++) {
-		blks_cb[i] = new Block[b_height];
+		blks_cb[i].resize(b_height);
 	}
 
-	Block **blks_cr = new Block*[b_width];
+	blks_cr.resize(b_width);
 	for (int i = 0; i < b_width; i++) {
-		blks_cr[i] = new Block[b_height];
+		blks_cr[i].resize(b_height);
 	}
 
 	int dc[3] = {0};
@@ -252,6 +277,147 @@ void JPEG::encode(YUV &yuv) {
 	}
 }
 
+void JPEG::write_to_file(const char* output) {
+	FILE* fp = fopen(output, "wb");
+	int len;
+
+	fputc(0xff, fp);
+	fputc(0xd8, fp);
+
+
+	// Quant
+	for (int i = 0; i < 16; i++) {
+		if (qtab[i] == NULL) {
+			continue;
+		}
+
+		len = 2 + 1 + BLOCK_SIZE * BLOCK_SIZE;
+
+		fputc(0xff, fp);
+		fputc(0xdb, fp);
+		fputc((len >> 8) & 0xff, fp);
+		fputc((len >> 0) & 0xff, fp);
+		fputc(i & 0xff, fp);
+
+		int zz[BLOCK_SIZE * BLOCK_SIZE];
+		zigzag(zz, qtab[i]->table);
+		for (int j = 0; j < BLOCK_SIZE * BLOCK_SIZE; j++) {
+			fputc(zz[j] & 0xff, fp);
+		}
+	}
+
+
+	// SOF0
+	const unsigned char comp_num = 3;
+	const unsigned char sample_factor_v = 2;
+	const unsigned char sample_factor_h = 2;
+	len = 2 + 1 + 2 + 2 + 1 + 3 * comp_num;
+	fputc(0xff, fp);
+	fputc(0xc0, fp);
+	fputc((len >> 8) & 0xff, fp);
+	fputc((len >> 0) & 0xff, fp);
+	fputc(8, fp);
+	fputc((height >> 8) & 0xff, fp);
+	fputc((height >> 0) & 0xff, fp);
+	fputc((width >> 8) & 0xff, fp);
+	fputc((width >> 0) & 0xff, fp);
+	fputc(comp_num, fp);
+
+	fputc(1, fp);
+	fputc((sample_factor_h << 4) | (sample_factor_v << 0), fp);
+	fputc(YUV_ENUM::YUV_Y, fp);
+
+	fputc(2, fp);
+	fputc((sample_factor_h << 4) | (sample_factor_v << 0), fp);
+	fputc(YUV_ENUM::YUV_C, fp);
+
+	fputc(3, fp);
+	fputc((sample_factor_h << 4) | (sample_factor_v << 0), fp);
+	fputc(YUV_ENUM::YUV_C, fp);
+
+
+	// Huffman table AC
+	for (int i = 0; i < 16; i++) {
+		if (hac[i] == NULL) continue;
+		fputc(0xff, fp);
+		fputc(0xc4, fp);
+
+		len = 2 + 1 + 16;
+		for (int j = 0; j < MAX_HUFFMAN_CODE_LEN; j++) {
+			len += hac[i]->table[j];
+		}
+
+		fputc((len >> 8) & 0xff, fp);
+		fputc((len >> 0) & 0xff, fp);
+		fputc(0x10 | (i & 0x0f), fp); // flag_ac (4 bit) | index (4 bit)
+		fwrite(hac[i]->table, len - 3, 1, fp);
+	}
+
+
+	// Huffman table DC
+	for (int i = 0; i < 16; i++) {
+		if (hdc[i] == NULL) continue;
+		fputc(0xff, fp);
+		fputc(0xc4, fp);
+
+		len = 2 + 1 + 16;
+		for (int j = 0; j < MAX_HUFFMAN_CODE_LEN; j++) {
+			len += hdc[i]->table[j];
+		}
+
+		fputc((len >> 8) & 0xff, fp);
+		fputc((len >> 0) & 0xff, fp);
+		fputc(0x00 | (i & 0x0f), fp); // flag_ac (4 bit) | index (4 bit)
+		fwrite(hdc[i]->table, len - 3, 1, fp);
+	}
+
+
+	// SOS
+	len = 2 + 1 + 2 * comp_num + 3;
+	fputc(0xff, fp);
+	fputc(0xda, fp);
+	fputc((len >> 8) & 0xff, fp);
+	fputc((len >> 0) & 0xff, fp);
+	fputc(comp_num, fp);
+
+	fputc(1, fp);
+	fputc((YUV_ENUM::YUV_Y << 4) | (YUV_ENUM::YUV_Y << 0), fp);
+
+	fputc(2, fp);
+	fputc((YUV_ENUM::YUV_C << 4) | (YUV_ENUM::YUV_C << 0), fp);
+
+	fputc(3, fp);
+	fputc((YUV_ENUM::YUV_C << 4) | (YUV_ENUM::YUV_C << 0), fp);
+
+	fputc(0x00, fp);
+	fputc(0x00, fp);
+	fputc(0x00, fp);
+
+
+	// Data
+	for (int i = 0; i < (int)blks_y.size(); i++) {
+		for (int j = 0; j < (int)blks_y[i].size(); j++) {
+			// Y
+			for (int k = 0; k < (int)blks_y[i][j].buffer.size(); k++) {
+				write_byte(blks_y[i][j].buffer[k], fp);
+			}
+
+			// Cb
+			for (int k = 0; k < (int)blks_cb[i][j].buffer.size(); k++) {
+				write_byte(blks_cb[i][j].buffer[k], fp);
+			}
+
+			// Cr
+			for (int k = 0; k < (int)blks_cr[i][j].buffer.size(); k++) {
+				write_byte(blks_cr[i][j].buffer[k], fp);
+			}
+		}
+	}
+	write_byte(0, fp, true);
+
+	fclose(fp);
+}
+
 void JPEG::convert_bmp_to_jpg(const char* input_path, const char* output_path) {
 	BMP bmp;
 	if (!bmp.read(input_path)) {
@@ -263,7 +429,7 @@ void JPEG::convert_bmp_to_jpg(const char* input_path, const char* output_path) {
 	RGB2YCbCr(yuv, bmp);
 	encode(yuv);
 
-	// TODO: write to output_path
+	write_to_file(output_path);
 }
 
 Block::Block() {
