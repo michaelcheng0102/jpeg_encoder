@@ -140,7 +140,7 @@ void JPEG::zigzag(int zz[BLOCK_SIZE * BLOCK_SIZE], const int f[BLOCK_SIZE][BLOCK
 
 	while (1) {
 		zz[idx++] = f[i][j];
-		if (i == BLOCK_SIZE && j == BLOCK_SIZE) {
+		if (i == BLOCK_SIZE - 1 && j == BLOCK_SIZE - 1) {
 			break;
 		}
 
@@ -159,11 +159,11 @@ void JPEG::zigzag(int zz[BLOCK_SIZE * BLOCK_SIZE], const int f[BLOCK_SIZE][BLOCK
 				flag = false;
 			}
 		} else {
-			if (i == BLOCK_SIZE && !flag) {
+			if (i == BLOCK_SIZE - 1 && !flag) {
 				j += 1;
 				dir = (dir + 1) % 2;
 				flag = true;
-			} else if (j == BLOCK_SIZE && !flag) {
+			} else if (j == BLOCK_SIZE - 1 && !flag) {
 				i += 1;
 				dir = (dir + 1) % 2;
 				flag = true;
@@ -286,6 +286,7 @@ void JPEG::write_to_file(const char* output) {
 
 
 	// Quant
+	int zz[BLOCK_SIZE * BLOCK_SIZE];
 	for (int i = 0; i < 16; i++) {
 		if (qtab[i] == NULL) {
 			continue;
@@ -295,14 +296,13 @@ void JPEG::write_to_file(const char* output) {
 
 		fputc(0xff, fp);
 		fputc(0xdb, fp);
-		fputc((len >> 8) & 0xff, fp);
-		fputc((len >> 0) & 0xff, fp);
-		fputc(i & 0xff, fp);
+		fputc(len >> 8, fp);
+		fputc(len >> 0, fp);
+		fputc(i, fp);
 
-		int zz[BLOCK_SIZE * BLOCK_SIZE];
 		zigzag(zz, qtab[i]->table);
 		for (int j = 0; j < BLOCK_SIZE * BLOCK_SIZE; j++) {
-			fputc(zz[j] & 0xff, fp);
+			fputc(zz[j], fp);
 		}
 	}
 
@@ -314,13 +314,13 @@ void JPEG::write_to_file(const char* output) {
 	len = 2 + 1 + 2 + 2 + 1 + 3 * comp_num;
 	fputc(0xff, fp);
 	fputc(0xc0, fp);
-	fputc((len >> 8) & 0xff, fp);
-	fputc((len >> 0) & 0xff, fp);
+	fputc(len >> 8, fp);
+	fputc(len >> 0, fp);
 	fputc(8, fp);
-	fputc((height >> 8) & 0xff, fp);
-	fputc((height >> 0) & 0xff, fp);
-	fputc((width >> 8) & 0xff, fp);
-	fputc((width >> 0) & 0xff, fp);
+	fputc(height >> 8, fp);
+	fputc(height >> 0, fp);
+	fputc(width >> 8, fp);
+	fputc(width >> 0, fp);
 	fputc(comp_num, fp);
 
 	fputc(1, fp);
@@ -347,8 +347,8 @@ void JPEG::write_to_file(const char* output) {
 			len += hac[i]->table[j];
 		}
 
-		fputc((len >> 8) & 0xff, fp);
-		fputc((len >> 0) & 0xff, fp);
+		fputc(len >> 8, fp);
+		fputc(len >> 0, fp);
 		fputc(0x10 | (i & 0x0f), fp); // flag_ac (4 bit) | index (4 bit)
 		fwrite(hac[i]->table, len - 3, 1, fp);
 	}
@@ -365,8 +365,8 @@ void JPEG::write_to_file(const char* output) {
 			len += hdc[i]->table[j];
 		}
 
-		fputc((len >> 8) & 0xff, fp);
-		fputc((len >> 0) & 0xff, fp);
+		fputc(len >> 8, fp);
+		fputc(len >> 0, fp);
 		fputc(0x00 | (i & 0x0f), fp); // flag_ac (4 bit) | index (4 bit)
 		fwrite(hdc[i]->table, len - 3, 1, fp);
 	}
@@ -376,8 +376,8 @@ void JPEG::write_to_file(const char* output) {
 	len = 2 + 1 + 2 * comp_num + 3;
 	fputc(0xff, fp);
 	fputc(0xda, fp);
-	fputc((len >> 8) & 0xff, fp);
-	fputc((len >> 0) & 0xff, fp);
+	fputc(len >> 8, fp);
+	fputc(len >> 0, fp);
 	fputc(comp_num, fp);
 
 	fputc(1, fp);

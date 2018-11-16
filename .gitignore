@@ -5,5 +5,7 @@
 .*.swp
 
 *.o
+*.jpg
+*.bmp
 
 jpeg_encoder
