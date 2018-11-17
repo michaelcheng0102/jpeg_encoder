@@ -1,20 +1,27 @@
 TARGET = jpeg_encoder
+
+OBJ = obj
+SRC = src
+INC = inc
+
 CXX = g++
 CXX_LIBS = -lpthread
-CXX_FLAGS = -O2 --std=c++11 -DDEBUG
+CXX_FLAGS = -O2 --std=c++11 -I$(INC) -DDEBUG
+
 DEPS = constants.h
 
 ENCODER_OBJS = bmp.o jpeg.o yuv.o quantable.o huffman.o block.o rle.o
+OBJS = $(foreach n, $(ENCODER_OBJS), $(OBJ)/$(n))
 
 .PHONY: all clean
 
 all: $(TARGET)
 
-jpeg_encoder: $(ENCODER_OBJS) main.cpp
+jpeg_encoder: $(OBJS) $(SRC)/main.cpp
 	$(CXX) $(CXX_FLAGS) $^ -o $@ $(CXX_LIBS)
 
-%.o: %.cpp %.h $(DEPS)
-	$(CXX) -c $< $(CXX_FLAGS)
+$(OBJS): $(OBJ)/%.o: $(SRC)/%.cpp $(INC)/%.h $(foreach n, $(DEPS), $(INC)/$(n))
+	$(CXX) -c $< $(CXX_FLAGS) -o $@
 
 clean:
-	rm -f *.o $(TARGET)
+	rm -f $(OBJ)/* $(TARGET)
