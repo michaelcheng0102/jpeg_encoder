@@ -1,13 +1,16 @@
-#include <stdio.h>
-#include <string>
+#include <cstdio>
 #include <cmath>
 #include <cassert>
 #include <vector>
 #include <algorithm>
+
 #include "jpeg.h"
 #include "bmp.h"
+#include "yuv.h"
 #include "quantable.h"
 #include "huffman.h"
+#include "block.h"
+#include "rle.h"
 #include "constants.h"
 
 using namespace std;
@@ -246,54 +249,6 @@ void JPEG::go_transform_block(Block& blk, const double yuv_data[BLOCK_SIZE][BLOC
 	*/
 }
 
-string to_bin(int val, int len) {
-	string ret = "";
-	for (int i = 0; i < len; i++) {
-		string tmp = (val & 1) ? "1" : "0";
-		ret = tmp + ret;
-		val >>= 1;
-	}
-
-	return ret;
-}
-
-void JPEG::write_huffman(int key, int val, int len, Huffman* table, YUV_ENUM type, FILE* fp, bool ff) {
-	pair<int, int> e = table->encode(key);
-	write_bits(e.first, e.second, fp);
-
-	/*
-	printf("write=%s len=%d\n", to_bin(e.first, e.second).c_str(), e.second);
-	if (type == 0 && !ff) fprintf(stderr, "(%d,%d)(%d)\n", key, e.first, val);
-	*/
-
-	if (--len < 0) {
-		return;
-	}
-
-	write_bits(val > 0 ? 1 : 0, 1, fp);
-	//printf("write=%d", val > 0 ? 1 : 0);
-
-	val = val > 0 ? val - (1 << len) : val + (3 << len) - 1;
-	write_bits(val, len, fp);
-	//printf("%s len=%d\n", to_bin(val, len).c_str(), len + 1);
-}
-
-void JPEG::go_encode_block_to_file(Block& blk, int& dc, YUV_ENUM type, FILE* fp) {
-	// DC
-	int diff = blk.data[0][0] - dc, size;
-
-	dc = blk.data[0][0];
-	size = category_encode(diff);
-	//printf("DC(%d. size=%d)\n", diff, size);
-	write_huffman(size, diff, size, hdc[type], type, fp);
-
-	// AC
-	for (int i = 0; i < (int)blk.rle_list.size(); i++) {
-		//printf("AC %d (%d,%d,%d):\n", i, blk.rle_list[i].code_data, blk.rle_list[i].code_size, blk.rle_list[i].run_len);
-		write_huffman((blk.rle_list[i].run_len << 4) | (blk.rle_list[i].code_size << 0), blk.rle_list[i].code_data, blk.rle_list[i].code_size, hac[type], type, fp, false);
-	}
-}
-
 void JPEG::encode(YUV &yuv) {
 	int b_width = width / BLOCK_SIZE;
 	int b_height = height / BLOCK_SIZE;
@@ -353,6 +308,56 @@ void JPEG::encode(YUV &yuv) {
 			//printf("type=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_C, st_x, st_y);
 			go_transform_block(blks_cr[i][j], yuv_data, YUV_ENUM::YUV_C);
 		}
+	}
+}
+
+/*
+string to_bin(int val, int len) {
+	string ret = "";
+	for (int i = 0; i < len; i++) {
+		string tmp = (val & 1) ? "1" : "0";
+		ret = tmp + ret;
+		val >>= 1;
+	}
+
+	return ret;
+}
+*/
+
+void JPEG::write_huffman(int key, int val, int len, Huffman* table, YUV_ENUM type, FILE* fp, bool ff) {
+	pair<int, int> e = table->encode(key);
+	write_bits(e.first, e.second, fp);
+
+	/*
+	printf("write=%s len=%d\n", to_bin(e.first, e.second).c_str(), e.second);
+	if (type == 0 && !ff) fprintf(stderr, "(%d,%d)(%d)\n", key, e.first, val);
+	*/
+
+	if (--len < 0) {
+		return;
+	}
+
+	write_bits(val > 0 ? 1 : 0, 1, fp);
+	//printf("write=%d", val > 0 ? 1 : 0);
+
+	val = val > 0 ? val - (1 << len) : val + (3 << len) - 1;
+	write_bits(val, len, fp);
+	//printf("%s len=%d\n", to_bin(val, len).c_str(), len + 1);
+}
+
+void JPEG::go_encode_block_to_file(Block& blk, int& dc, YUV_ENUM type, FILE* fp) {
+	// DC
+	int diff = blk.data[0][0] - dc, size;
+
+	dc = blk.data[0][0];
+	size = category_encode(diff);
+	//printf("DC(%d. size=%d)\n", diff, size);
+	write_huffman(size, diff, size, hdc[type], type, fp);
+
+	// AC
+	for (int i = 0; i < (int)blk.rle_list.size(); i++) {
+		//printf("AC %d (%d,%d,%d):\n", i, blk.rle_list[i].code_data, blk.rle_list[i].code_size, blk.rle_list[i].run_len);
+		write_huffman((blk.rle_list[i].run_len << 4) | (blk.rle_list[i].code_size << 0), blk.rle_list[i].code_data, blk.rle_list[i].code_size, hac[type], type, fp, false);
 	}
 }
 
@@ -565,10 +570,4 @@ void JPEG::convert_bmp_to_jpg(const char* input_path, const char* output_path) {
 	encode(yuv);
 
 	write_to_file(output_path);
-}
-
-Block::Block() {
-}
-
-Block::~Block() {
 }

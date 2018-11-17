@@ -10,12 +10,13 @@ public:
 };
 
 class Huffman {
-public:
-	unsigned char table[MAX_HUFFMAN_CODE_LEN + 256];
+private:
 	int first[MAX_HUFFMAN_CODE_LEN];
 	int index[MAX_HUFFMAN_CODE_LEN];
-
 	HuffmanCodeItem codelist[256];
+
+public:
+	unsigned char table[MAX_HUFFMAN_CODE_LEN + 256];
 
 	Huffman();
 	Huffman(const unsigned char t[MAX_HUFFMAN_CODE_LEN + 256]);

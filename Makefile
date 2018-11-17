@@ -4,7 +4,7 @@ CXX_LIBS = -lpthread
 CXX_FLAGS = -O2 --std=c++11 -DDEBUG
 DEPS = constants.h
 
-ENCODER_OBJS = bmp.o jpeg.o yuv.o quantable.o huffman.o
+ENCODER_OBJS = bmp.o jpeg.o yuv.o quantable.o huffman.o block.o rle.o
 
 .PHONY: all clean
 

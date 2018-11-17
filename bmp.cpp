@@ -1,21 +1,25 @@
 #include <cstdio>
 #include <algorithm>
+
 #include "bmp.h"
 #include "constants.h"
 
 using namespace std;
 
 BMP::BMP() {
+	data = NULL;
 }
 
 BMP::~BMP() {
-	for (int i = 0; i < height; i++) {
-		for (int j = 0; j < width; j++) {
-			delete []data[i][j];
+	if (data != NULL) {
+		for (int i = 0; i < height; i++) {
+			for (int j = 0; j < width; j++) {
+				delete []data[i][j];
+			}
+			delete []data[i];
 		}
-		delete []data[i];
+		delete []data;
 	}
-	delete []data;
 }
 
 bool BMP::read(const char* path) {
@@ -28,8 +32,10 @@ bool BMP::read(const char* path) {
 	unsigned char header[64];
 	fread(header, sizeof(unsigned char), 54, fp);
 
-	height = height_ori = (int) header[22] + (int)header[23] * 256 + (int)header[24] * 256 * 256;
-	width = width_ori = (int) header[18] + (int)header[19] * 256 + (int)header[20] * 256 * 256;
+	int height_ori;
+	int width_ori;
+	height = height_ori = (int)header[22] + (int)header[23] * 256 + (int)header[24] * 256 * 256 + (int)header[25] * 256 * 256 * 256;
+	width = width_ori = (int)header[18] + (int)header[19] * 256 + (int)header[20] * 256 * 256 + (int)header[21] * 256 * 256 * 256;
 	fprintf(stderr, "%d %d\n", width, height);
 
 	int mod = BLOCK_SIZE * 2;
@@ -53,12 +59,13 @@ bool BMP::read(const char* path) {
 
 	for (int i = height_ori - 1; i >= 0; i--) {
 		for (int j = 0; j < width_ori; j++) {
-			if (fread(data[i][j], sizeof(unsigned char), 3, fp) != 3) {
+			int k = (j - 28 + width_ori) % width_ori;
+			if (fread(data[i][k], sizeof(unsigned char), 3, fp) != 3) {
 				fprintf(stderr, "Read BMP bytes error\n");
 				fclose(fp);
 				return false;
 			}
-			swap(data[i][j][0], data[i][j][2]);
+			swap(data[i][k][0], data[i][k][2]);
 		}
 	}
 

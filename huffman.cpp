@@ -1,6 +1,6 @@
-#include <cstring>
 #include <cassert>
 #include <utility>
+
 #include "huffman.h"
 #include "constants.h"
 
