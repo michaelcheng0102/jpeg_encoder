@@ -21,7 +21,7 @@ public:
 	Huffman(const unsigned char t[MAX_HUFFMAN_CODE_LEN + 256]);
 	~Huffman();
 
-	std::pair<unsigned int, int> encode(int data);
+	std::pair<int, int> encode(int data);
 };
 
 #endif

@@ -18,7 +18,7 @@ inline double alpha(int x) {
 	return 1.0;
 }
 
-void write_byte(unsigned char c, int bitsize, FILE* fp, bool flush = false) {
+void write_bits(int code, int bitsize, FILE* fp, bool flush = false) {
 	static unsigned char x = 0;
 	static int idx = 0;
 
@@ -33,7 +33,8 @@ void write_byte(unsigned char c, int bitsize, FILE* fp, bool flush = false) {
 	}
 
 	for (int i = 0; i < bitsize; i++) {
-		x |= (((c >> (8 - i - 1)) & 0x1) << (8 - idx - 1));
+		unsigned char c = (code >> (bitsize - i - 1)) & 0x1;
+		x |= (c << (8 - idx - 1));
 		idx++;
 
 		if (idx == 8) {
@@ -71,64 +72,68 @@ void JPEG::RGB2YCbCr(YUV& yuv, const BMP &bmp) {
 	width = yuv.width;
 	height = yuv.height;
 
-	for (int w = 0; w < bmp.width; w++) {
-		for (int h = 0; h < bmp.height; h++) {
-			yuv.y[w][h] = 2990 * (int) bmp.data[w][h][0]
-				+ 5870 * (int) bmp.data[w][h][1]
-				+ 1140 * (int) bmp.data[w][h][2]
+	for (int h = 0; h < bmp.height; h++) {
+		for (int w = 0; w < bmp.width; w++) {
+			yuv.y[h][w] = 2990 * (int) bmp.data[h][w][0]
+				+ 5870 * (int) bmp.data[h][w][1]
+				+ 1140 * (int) bmp.data[h][w][2]
 				- 1280000;
 
-			yuv.cb[w][h] = -1687 * (int) bmp.data[w][h][0]
-				- 3313 * (int) bmp.data[w][h][1]
-				+ 5000 * (int) bmp.data[w][h][2];
+			yuv.cb[h][w] = -1687 * (int) bmp.data[h][w][0]
+				- 3313 * (int) bmp.data[h][w][1]
+				+ 5000 * (int) bmp.data[h][w][2];
 
-			yuv.cr[w][h] = 5000 * (int) bmp.data[w][h][0]
-				- 4187 * (int) bmp.data[w][h][1]
-				- 813 * (int) bmp.data[w][h][2];
+			yuv.cr[h][w] = 5000 * (int) bmp.data[h][w][0]
+				- 4187 * (int) bmp.data[h][w][1]
+				- 813 * (int) bmp.data[h][w][2];
 		}
 	}
 }
 
-void JPEG::category_encode(int& code, int& size) {
-	unsigned absc = abs(code);
-	unsigned mask = (1 << 15);
-	int i = 15;
-	if (absc == 0) {
-		size = 0;
-		return;
+int JPEG::category_encode(int val) {
+	int cnt = 0;
+	for (val = abs(val); val; val >>= 1) {
+		cnt++;
 	}
-	while (i && !(absc & mask)) {
-		mask >>= 1;
-		i--;
-	}
-	size = i + 1;
-	if (code < 0) {
-		code = (1 << size) - absc - 1;
-	}
+	return cnt;
 }
 
-void JPEG::fdct(double f[BLOCK_SIZE][BLOCK_SIZE], const int* const* yuv_data, int st_x, int st_y, YUV_ENUM type) {
+void JPEG::fdct(double f[BLOCK_SIZE][BLOCK_SIZE], const double yuv_data[BLOCK_SIZE][BLOCK_SIZE]) {
+	/*
+	for (int u = 0; u < BLOCK_SIZE; u++) {
+		for (int v = 0; v < BLOCK_SIZE; v++) {
+			printf("%.1f ", yuv_data[u][v]);
+		}
+		printf("\n");
+	}
+	*/
 	for (int u = 0; u < BLOCK_SIZE; u++) {
 		for (int v = 0; v < BLOCK_SIZE; v++) {
 			f[u][v] = 0.0;
 			for (int x = 0; x < BLOCK_SIZE; x++) {
 				for (int y = 0; y < BLOCK_SIZE; y++) {
 					double cc = cos((2.0 * x + 1.0) * u * PI / 16.0) * cos((2.0 * y + 1.0) * v * PI / 16.0);
-					f[u][v] += yuv_data[st_x + x][st_y + y] * cc;
+					f[u][v] += yuv_data[x][y] * cc;
 				}
 			}
 			double aa = alpha(u) * alpha(v);
 			f[u][v] = f[u][v] * aa / 40000.0;
+			//printf("%.1f ", f[u][v]);
 		}
+		//printf("\n");
 	}
+	//printf("---\n");
 }
 
 void JPEG::quantize(int f1[BLOCK_SIZE][BLOCK_SIZE], const double f2[BLOCK_SIZE][BLOCK_SIZE], YUV_ENUM type) {
 	for (int u = 0; u < BLOCK_SIZE; u++) {
 		for (int v = 0; v < BLOCK_SIZE; v++) {
 			f1[u][v] = f2[u][v] / qtab[type]->table[u][v];
+			//printf("%d ", f1[u][v]);
 		}
+		//printf("\n");
 	}
+	//printf("======\n");
 }
 
 void JPEG::zigzag(int zz[BLOCK_SIZE * BLOCK_SIZE], const int f[BLOCK_SIZE][BLOCK_SIZE]) {
@@ -176,15 +181,15 @@ void JPEG::zigzag(int zz[BLOCK_SIZE * BLOCK_SIZE], const int f[BLOCK_SIZE][BLOCK
 	}
 }
 
-void JPEG::rle(vector<RLE>& rle_list, int& eob, const int zz[BLOCK_SIZE * BLOCK_SIZE]) {
+void JPEG::rle(vector<RLE>& rle_list, const int zz[BLOCK_SIZE * BLOCK_SIZE]) {
 	int cnt_zero = 0;
-	eob = 0;
+	int eob = 0;
 	for (int i = 1; i < BLOCK_SIZE * BLOCK_SIZE && (int)rle_list.size() < BLOCK_SIZE * BLOCK_SIZE - 1; i++) {
 		if (zz[i] == 0 && cnt_zero < 15) {
 			cnt_zero++;
 		} else {
-			int code = zz[i], size = 0;
-			category_encode(code, size);
+			int code = zz[i];
+			int size = category_encode(code);
 			rle_list.push_back(RLE(cnt_zero, size, code));
 			cnt_zero = 0;
 			if (size != 0) {
@@ -192,47 +197,57 @@ void JPEG::rle(vector<RLE>& rle_list, int& eob, const int zz[BLOCK_SIZE * BLOCK_
 			}
 		}
 	}
+	if (zz[BLOCK_SIZE * BLOCK_SIZE - 1] == 0) {
+		assert(eob <= rle_list.size());
+		if (eob == (int)rle_list.size()) {
+			rle_list.push_back(RLE(0, 0, 0));
+		} else {
+			rle_list[eob].run_len = 0;
+			rle_list[eob].code_size = 0;
+			rle_list[eob].code_data = 0;
+		}
+	}
 }
 
-void JPEG::go_transform_block(Block& blk, const int* const* yuv_data, int st_x, int st_y, YUV_ENUM type) {
+void JPEG::go_transform_block(Block& blk, const double yuv_data[BLOCK_SIZE][BLOCK_SIZE], YUV_ENUM type) {
 	double f[BLOCK_SIZE][BLOCK_SIZE];
 
-	fdct(f, yuv_data, st_x, st_y, type);
+	fdct(f, yuv_data);
 	quantize(blk.data, f, type);
 
 	int zz[BLOCK_SIZE * BLOCK_SIZE];
 	zigzag(zz, blk.data);
 
 	// AC RLE
-	int eob = 0;
-	rle(blk.rle_list, eob, zz);
-	if (zz[BLOCK_SIZE * BLOCK_SIZE - 1] == 0) { // eob
-		if (eob >= (int)blk.rle_list.size()) {
-			blk.rle_list.push_back(RLE(0, 0, 0));
-		} else {
-			blk.rle_list[eob].run_len = 0;
-			blk.rle_list[eob].code_size = 0;
-			blk.rle_list[eob].code_data = 0;
-		}
-	}
+	rle(blk.rle_list, zz);
 }
 
-void JPEG::go_encode_block(Block& blk, int& dc, YUV_ENUM type) {
+void JPEG::write_huffman(int key, int val, int len, Huffman* table, YUV_ENUM type, FILE* fp, bool ff) {
+	pair<int, int> e = table->encode(key);
+	write_bits(e.first, e.second, fp);
+	if (type == 0 && !ff);
+		//fprintf(stderr, "(%d,%d)(%d)\n", key, e.first, val);
+
+	if (--len < 0) return;
+
+	write_bits(val > 0 ? 1 : 0, 1, fp);
+
+	val = val > 0 ? val - (1 << len) : val + (3 << len) - 1;
+	write_bits(val, len, fp);
+}
+
+void JPEG::go_encode_block_to_file(Block& blk, int& dc, YUV_ENUM type, FILE* fp) {
 	// DC
-	int diff = blk.data[0][0] - dc, size = 0;
+	int diff = blk.data[0][0] - dc, size;
 	pair<unsigned int, int> e;
 
 	dc = blk.data[0][0];
-	category_encode(diff, size);
-	e = hdc[type]->encode(size);
-	blk.write_bit(e.first, e.second);
-	blk.write_bit(diff, size);
+	size = category_encode(diff);
+	write_huffman(size, diff, size, hdc[type], type, fp);
 
 	// AC
 	for (int i = 0; i < (int)blk.rle_list.size(); i++) {
-		e = hac[type]->encode((blk.rle_list[i].run_len << 4) | (blk.rle_list[i].code_size << 0));
-		blk.write_bit(e.first, e.second);
-		blk.write_bit(blk.rle_list[i].code_data, blk.rle_list[i].code_size);
+		write_huffman((blk.rle_list[i].run_len << 4) | (blk.rle_list[i].code_size << 0), blk.rle_list[i].code_data, blk.rle_list[i].code_size, hac[type], type, fp, false);
 	}
 }
 
@@ -258,45 +273,42 @@ void JPEG::encode(YUV &yuv) {
 	// can parallel
 	for (int i = 0; i < b_height; i++) {
 		for (int j = 0; j < b_width; j++) {
+			double yuv_data[BLOCK_SIZE][BLOCK_SIZE];
+			int st_x = i * BLOCK_SIZE;
+			int st_y = j * BLOCK_SIZE;
+
 			// Y
-			go_transform_block(blks_y[i][j], yuv.y, i * BLOCK_SIZE, j * BLOCK_SIZE, YUV_ENUM::YUV_Y);
-
-			if (i % 2 == 0 && j % 2 == 0) {
-				// Cb
-				go_transform_block(blks_cb[i][j], yuv.cb, i * BLOCK_SIZE, j * BLOCK_SIZE, YUV_ENUM::YUV_C);
-
-				// Cr
-				go_transform_block(blks_cr[i][j], yuv.cr, i * BLOCK_SIZE, j * BLOCK_SIZE, YUV_ENUM::YUV_C);
-			}
-		}
-	}
-
-	/*
-	for (int i = 7; i < 10; i++) {
-		for (int k = 0; k < 8; k++) {
-			for (int j = 7; j < 10; j++) {
-				for (int l = 0; l < 8; l++) {
-					fprintf(stderr, "%d ", blks_y[i][j].data[k][l]);
+			for (int x = 0; x < BLOCK_SIZE; x++) {
+				for (int y = 0; y < BLOCK_SIZE; y++) {
+					yuv_data[x][y] = yuv.y[st_x + x][st_y + y];
 				}
-				fprintf(stderr, " ");
 			}
-			fprintf(stderr, "\n");
-		}
-		fprintf(stderr, "\n");
-	}
-	*/
-	// no parallel
-	int dc[3] = {0};
-	for (int i = 0; i < b_height; i += 2) {
-		for (int j = 0; j < b_width; j += 2) {
-			go_encode_block(blks_y[i][j], dc[0], YUV_ENUM::YUV_Y);
-			go_encode_block(blks_y[i][j + 1], dc[0], YUV_ENUM::YUV_Y);
-			go_encode_block(blks_y[i + 1][j], dc[0], YUV_ENUM::YUV_Y);
-			go_encode_block(blks_y[i + 1][j + 1], dc[0], YUV_ENUM::YUV_Y);
+			//printf("type=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_Y, st_x, st_y);
+			go_transform_block(blks_y[i][j], yuv_data, YUV_ENUM::YUV_Y);
 
-			go_encode_block(blks_cb[i][j], dc[1], YUV_ENUM::YUV_C);
+			if (i % 2 != 0 || j % 2 != 0) continue;
 
-			go_encode_block(blks_cr[i][j], dc[2], YUV_ENUM::YUV_C);
+			// Cb
+			for (int x = 0; x < BLOCK_SIZE; x++) {
+				for (int y = 0; y < BLOCK_SIZE; y++) {
+					int xx = st_x + x * 2;
+					int yy = st_y + y * 2;
+					yuv_data[x][y] = (yuv.cb[xx][yy] + yuv.cb[xx][yy + 1] + yuv.cb[xx + 1][yy] + yuv.cb[xx + 1][yy + 1]) / 4.0;
+				}
+			}
+			//printf("\ntype=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_C, st_x, st_y);
+			go_transform_block(blks_cb[i][j], yuv_data, YUV_ENUM::YUV_C);
+
+			// Cr
+			for (int x = 0; x < BLOCK_SIZE; x++) {
+				for (int y = 0; y < BLOCK_SIZE; y++) {
+					int xx = st_x + x * 2;
+					int yy = st_y + y * 2;
+					yuv_data[x][y] = (yuv.cr[xx][yy] + yuv.cr[xx][yy + 1] + yuv.cr[xx + 1][yy] + yuv.cr[xx + 1][yy + 1]) / 4.0;
+				}
+			}
+			//printf("type=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_C, st_x, st_y);
+			go_transform_block(blks_cr[i][j], yuv_data, YUV_ENUM::YUV_C);
 		}
 	}
 }
@@ -403,10 +415,10 @@ void JPEG::write_to_file(const char* output) {
 
 		fputc(len >> 8, fp);
 		fputc(len >> 0, fp);
-		fputc(0x10 | (i & 0x0f), fp); // flag_ac (4 bit) | index (4 bit)
-		fwrite(hac[i]->table, len - 3, 1, fp);
+		fputc(0x10 | i, fp); // flag_ac (4 bit) | index (4 bit)
+		fwrite(hac[i]->table, 1, len - 3, fp);
 #if DEBUG
-		printf("%02x %02x %02x %02x %02x", 0xff, 0xc4, len >> 8, len >> 0, 0x10 | (i & 0x0f));
+		printf("%02x %02x %02x %02x %02x", 0xff, 0xc4, len >> 8, len >> 0, 0x10 | i);
 		for (int j = 0; j < len - 3; j++) {
 			printf(" %02x", hac[i]->table[j]);
 		}
@@ -429,10 +441,10 @@ void JPEG::write_to_file(const char* output) {
 
 		fputc(len >> 8, fp);
 		fputc(len >> 0, fp);
-		fputc(0x00 | (i & 0x0f), fp); // flag_ac (4 bit) | index (4 bit)
-		fwrite(hdc[i]->table, len - 3, 1, fp);
+		fputc(0x00 | i, fp); // flag_ac (4 bit) | index (4 bit)
+		fwrite(hdc[i]->table, 1, len - 3, fp);
 #if DEBUG
-		printf("%02x %02x %02x %02x %02x", 0xff, 0xc4, len >> 8, len >> 0, 0x00 | (i & 0x0f));
+		printf("%02x %02x %02x %02x %02x", 0xff, 0xc4, len >> 8, len >> 0, 0x00 | i);
 		for (int j = 0; j < len - 3; j++) {
 			printf(" %02x", hdc[i]->table[j]);
 		}
@@ -474,43 +486,21 @@ void JPEG::write_to_file(const char* output) {
 	// Data
 	int b_height = height / BLOCK_SIZE;
 	int b_width = width / BLOCK_SIZE;
+	// no parallel
+	int dc[3] = {0};
 	for (int i = 0; i < b_height; i += 2) {
 		for (int j = 0; j < b_width; j += 2) {
-			// Y
-			for (int k = 0; k < (int)blks_y[i][j].buffer.size(); k++) {
-				int bitsize = (k == blks_y[i][j].buffer.size() - 1) ? blks_y[i][j].buf_bit_idx : 8;
-				write_byte(blks_y[i][j].buffer[k], bitsize, fp);
-			}
+			go_encode_block_to_file(blks_y[i][j], dc[0], YUV_ENUM::YUV_Y, fp);
+			go_encode_block_to_file(blks_y[i][j + 1], dc[0], YUV_ENUM::YUV_Y, fp);
+			go_encode_block_to_file(blks_y[i + 1][j], dc[0], YUV_ENUM::YUV_Y, fp);
+			go_encode_block_to_file(blks_y[i + 1][j + 1], dc[0], YUV_ENUM::YUV_Y, fp);
 
-			for (int k = 0; k < (int)blks_y[i][j + 1].buffer.size(); k++) {
-				int bitsize = (k == blks_y[i][j + 1].buffer.size() - 1) ? blks_y[i][j + 1].buf_bit_idx : 8;
-				write_byte(blks_y[i][j + 1].buffer[k], bitsize, fp);
-			}
+			go_encode_block_to_file(blks_cb[i][j], dc[1], YUV_ENUM::YUV_C, fp);
 
-			for (int k = 0; k < (int)blks_y[i + 1][j].buffer.size(); k++) {
-				int bitsize = (k == blks_y[i + 1][j].buffer.size() - 1) ? blks_y[i + 1][j].buf_bit_idx : 8;
-				write_byte(blks_y[i + 1][j].buffer[k], bitsize, fp);
-			}
-
-			for (int k = 0; k < (int)blks_y[i + 1][j + 1].buffer.size(); k++) {
-				int bitsize = (k == blks_y[i + 1][j + 1].buffer.size() - 1) ? blks_y[i + 1][j + 1].buf_bit_idx : 8;
-				write_byte(blks_y[i + 1][j + 1].buffer[k], bitsize, fp);
-			}
-
-			// Cb
-			for (int k = 0; k < (int)blks_cb[i][j].buffer.size(); k++) {
-				int bitsize = (k == blks_cb[i][j].buffer.size() - 1) ? blks_cb[i][j].buf_bit_idx : 8;
-				write_byte(blks_cb[i][j].buffer[k], bitsize, fp);
-			}
-
-			// Cr
-			for (int k = 0; k < (int)blks_cr[i][j].buffer.size(); k++) {
-				int bitsize = (k == blks_cr[i][j].buffer.size() - 1) ? blks_cr[i][j].buf_bit_idx : 8;
-				write_byte(blks_cr[i][j].buffer[k], bitsize, fp);
-			}
+			go_encode_block_to_file(blks_cr[i][j], dc[2], YUV_ENUM::YUV_C, fp);
 		}
 	}
-	write_byte(0, 8, fp, true);
+	write_bits(0, 8, fp, true);
 
 
 	// EOI
@@ -535,29 +525,7 @@ void JPEG::convert_bmp_to_jpg(const char* input_path, const char* output_path) {
 }
 
 Block::Block() {
-	buf_bit_idx = 8;
 }
 
 Block::~Block() {
-}
-
-void Block::write_bit(int n, int bitsize) {
-	int written_bit = 0;
-	while (written_bit < bitsize) {
-		if (buf_bit_idx == 8) {
-			buffer.push_back((unsigned char)0);
-			buf_bit_idx = 0;
-		}
-
-		int now_write = min(bitsize - written_bit, 8 - buf_bit_idx);
-		int shift = bitsize - written_bit - now_write;
-		int shift2 = 8 - now_write - buf_bit_idx;
-		int bitmask = (1 << now_write) - 1;
-
-		unsigned char x = (unsigned char)((bitmask & (n >> shift)) << shift2);
-		buffer[buffer.size() - 1] = buffer[buffer.size() - 1] | x;
-
-		buf_bit_idx += now_write;
-		written_bit += now_write;
-	}
 }

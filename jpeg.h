@@ -24,13 +24,8 @@ public:
 	int type;
 	std::vector<RLE> rle_list;
 
-	int buf_bit_idx;
-	std::vector<unsigned char> buffer;
-
 	Block();
 	~Block();
-
-	void write_bit(int n, int bitsize);
 };
 
 class JPEG {
@@ -48,15 +43,17 @@ private:
 
 	void RGB2YCbCr(YUV& yuv, const BMP& bmp);
 
-	void category_encode(int& code, int& size);
+	int category_encode(int val);
 
-	void fdct(double f[BLOCK_SIZE][BLOCK_SIZE], const int* const* yuv_data, int st_x, int st_y, YUV_ENUM type);
+	void fdct(double f[BLOCK_SIZE][BLOCK_SIZE], const double yuv_data[BLOCK_SIZE][BLOCK_SIZE]);
 	void quantize(int f1[BLOCK_SIZE][BLOCK_SIZE], const double f2[BLOCK_SIZE][BLOCK_SIZE], YUV_ENUM type);
 	void zigzag(int zz[BLOCK_SIZE * BLOCK_SIZE], const int f[BLOCK_SIZE][BLOCK_SIZE]);
-	void rle(std::vector<RLE>& rle_list, int& eob, const int zz[BLOCK_SIZE * BLOCK_SIZE]);
+	void rle(std::vector<RLE>& rle_list, const int zz[BLOCK_SIZE * BLOCK_SIZE]);
 
-	void go_transform_block(Block& blk, const int* const* yuv_data, int st_x, int st_y, YUV_ENUM type);
-	void go_encode_block(Block& blk, int& dc, YUV_ENUM type);
+	void go_transform_block(Block& blk, const double yuv_data[BLOCK_SIZE][BLOCK_SIZE], YUV_ENUM type);
+
+	void write_huffman(int key, int val, int len, Huffman* table, YUV_ENUM type, FILE* fp, bool ff = true);
+	void go_encode_block_to_file(Block& blk, int& dc, YUV_ENUM type, FILE* fp);
 
 	void encode(YUV &yuv);
 	void write_to_file(const char* output_path);
