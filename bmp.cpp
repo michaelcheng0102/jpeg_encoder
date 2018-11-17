@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <algorithm>
 #include "bmp.h"
 #include "constants.h"
 
@@ -40,6 +41,8 @@ bool BMP::read(const char* path) {
 		width += (mod - width % mod);
 	}
 
+	fprintf(stderr, "%d %d\n", width, height);
+
 	data = new unsigned char**[height];
 	for (int i = 0; i < height; i++) {
 		data[i] = new unsigned char*[width];
@@ -48,18 +51,14 @@ bool BMP::read(const char* path) {
 		}
 	}
 
-	for (int i = 0; i < height_ori; i++) {
+	for (int i = height_ori - 1; i >= 0; i--) {
 		for (int j = 0; j < width_ori; j++) {
 			if (fread(data[i][j], sizeof(unsigned char), 3, fp) != 3) {
 				fprintf(stderr, "Read BMP bytes error\n");
 				fclose(fp);
 				return false;
 			}
-
-			unsigned char tmp = data[i][j][0];
-			data[i][j][0] = data[i][j][1];
-			data[i][j][1] = data[i][j][2];
-			data[i][j][2] = tmp;
+			swap(data[i][j][0], data[i][j][2]);
 		}
 	}
 
