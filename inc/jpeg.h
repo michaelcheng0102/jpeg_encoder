@@ -27,7 +27,7 @@ void write_huffman(int key, int val, int len, Huffman* table, YUV_ENUM type, FIL
 void go_encode_block_to_file(Block& blk, int& dc, YUV_ENUM type, FILE* fp);
 void write_to_file(const char* output_path);
 
-void jpeg_init();
+void jpeg_init(int thread_num);
 void convert_bmp_to_jpg(const char* input_path, const char* output_path);
 
 #endif

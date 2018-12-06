@@ -3,6 +3,7 @@
 #include <cassert>
 #include <vector>
 #include <algorithm>
+#include <omp.h>
 
 #include "jpeg.h"
 #include "bmp.h"
@@ -246,6 +247,7 @@ void encode(YUV &yuv) {
 
 	// can parallel
 	for (int i = 0; i < b_height; i++) {
+#pragma omp parallel for
 		for (int j = 0; j < b_width; j++) {
 			int st_x = i * BLOCK_SIZE;
 			int st_y = j * BLOCK_SIZE;
@@ -526,7 +528,9 @@ void write_to_file(const char* output) {
 	fclose(fp);
 }
 
-void jpeg_init() {
+void jpeg_init(int thread_num) {
+	omp_set_num_threads(thread_num);
+
 	for (int i = 0; i < 16; i++) {
 		qtab[i] = NULL;
 		hdc[i] = NULL;
