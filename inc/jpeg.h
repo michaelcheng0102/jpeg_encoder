@@ -33,7 +33,7 @@ private:
 	void zigzag(int zz[BLOCK_SIZE * BLOCK_SIZE], const int f[BLOCK_SIZE][BLOCK_SIZE]);
 	void rle(std::vector<RLE>& rle_list, const int zz[BLOCK_SIZE * BLOCK_SIZE]);
 
-	void go_transform_block(Block& blk, const double yuv_data[BLOCK_SIZE][BLOCK_SIZE], YUV_ENUM type);
+	void go_transform_block(Block& blk, YUV_ENUM type);
 	void encode(YUV &yuv);
 
 	void write_huffman(int key, int val, int len, Huffman* table, YUV_ENUM type, FILE* fp, bool ff = true);

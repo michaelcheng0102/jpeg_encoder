@@ -217,10 +217,10 @@ void JPEG::rle(vector<RLE>& rle_list, const int zz[BLOCK_SIZE * BLOCK_SIZE]) {
 	}
 }
 
-void JPEG::go_transform_block(Block& blk, const double yuv_data[BLOCK_SIZE][BLOCK_SIZE], YUV_ENUM type) {
+void JPEG::go_transform_block(Block& blk, YUV_ENUM type) {
 	double f[BLOCK_SIZE][BLOCK_SIZE];
 
-	fdct(f, yuv_data);
+	fdct(f, blk.tmp_buf);
 	quantize(blk.data, f, type);
 
 	int zz[BLOCK_SIZE * BLOCK_SIZE];
@@ -270,19 +270,19 @@ void JPEG::encode(YUV &yuv) {
 
 	// can parallel
 	for (int i = 0; i < b_height; i++) {
+#pragma omp parallel for
 		for (int j = 0; j < b_width; j++) {
-			double yuv_data[BLOCK_SIZE][BLOCK_SIZE];
 			int st_x = i * BLOCK_SIZE;
 			int st_y = j * BLOCK_SIZE;
 
 			// Y
 			for (int x = 0; x < BLOCK_SIZE; x++) {
 				for (int y = 0; y < BLOCK_SIZE; y++) {
-					yuv_data[x][y] = yuv.y[st_x + x][st_y + y];
+					blks_y[i][j].tmp_buf[x][y] = yuv.y[st_x + x][st_y + y];
 				}
 			}
 			//printf("type=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_Y, st_x, st_y);
-			go_transform_block(blks_y[i][j], yuv_data, YUV_ENUM::YUV_Y);
+			go_transform_block(blks_y[i][j], YUV_ENUM::YUV_Y);
 
 			if (i % 2 != 0 || j % 2 != 0) continue;
 
@@ -291,22 +291,22 @@ void JPEG::encode(YUV &yuv) {
 				for (int y = 0; y < BLOCK_SIZE; y++) {
 					int xx = st_x + x * 2;
 					int yy = st_y + y * 2;
-					yuv_data[x][y] = (yuv.cb[xx][yy] + yuv.cb[xx][yy + 1] + yuv.cb[xx + 1][yy] + yuv.cb[xx + 1][yy + 1]) / 4.0;
+					blks_cb[i][j].tmp_buf[x][y] = (yuv.cb[xx][yy] + yuv.cb[xx][yy + 1] + yuv.cb[xx + 1][yy] + yuv.cb[xx + 1][yy + 1]) / 4.0;
 				}
 			}
 			//printf("\ntype=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_C, st_x, st_y);
-			go_transform_block(blks_cb[i][j], yuv_data, YUV_ENUM::YUV_C);
+			go_transform_block(blks_cb[i][j], YUV_ENUM::YUV_C);
 
 			// Cr
 			for (int x = 0; x < BLOCK_SIZE; x++) {
 				for (int y = 0; y < BLOCK_SIZE; y++) {
 					int xx = st_x + x * 2;
 					int yy = st_y + y * 2;
-					yuv_data[x][y] = (yuv.cr[xx][yy] + yuv.cr[xx][yy + 1] + yuv.cr[xx + 1][yy] + yuv.cr[xx + 1][yy + 1]) / 4.0;
+					blks_cr[i][j].tmp_buf[x][y] = (yuv.cr[xx][yy] + yuv.cr[xx][yy + 1] + yuv.cr[xx + 1][yy] + yuv.cr[xx + 1][yy + 1]) / 4.0;
 				}
 			}
 			//printf("type=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_C, st_x, st_y);
-			go_transform_block(blks_cr[i][j], yuv_data, YUV_ENUM::YUV_C);
+			go_transform_block(blks_cr[i][j], YUV_ENUM::YUV_C);
 		}
 	}
 }
