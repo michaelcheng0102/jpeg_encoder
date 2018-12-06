@@ -6,7 +6,7 @@ INC = inc
 
 CXX = g++
 CXX_LIBS = -lpthread
-CXX_FLAGS = -O2 --std=c++11 -I$(INC) -DDEBUG
+CXX_FLAGS = -O2 --std=c++11 -I$(INC)
 
 DEPS = constants.h
 
@@ -21,7 +21,7 @@ jpeg_encoder: $(OBJS) $(SRC)/main.cpp
 	$(CXX) $(CXX_FLAGS) $^ -o $@ $(CXX_LIBS)
 
 $(OBJS): $(OBJ)/%.o: $(SRC)/%.cpp $(INC)/%.h $(foreach n, $(DEPS), $(INC)/$(n))
-	$(CXX) -c $< $(CXX_FLAGS) -o $@
+	$(CXX) -c $< $(CXX_FLAGS) -o $@ $(CXX_LIBS)
 
 clean:
 	rm -f $(OBJ)/* $(TARGET)
