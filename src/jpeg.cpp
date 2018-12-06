@@ -3,6 +3,8 @@
 #include <cassert>
 #include <vector>
 #include <algorithm>
+#include <utility>
+#include <pthread.h>
 
 #include "jpeg.h"
 #include "bmp.h"
@@ -15,6 +17,7 @@
 
 using namespace std;
 
+int jpeg_thread_num;
 int jpeg_width;
 int jpeg_height;
 
@@ -25,6 +28,81 @@ vector<vector<Block> > blks_cr;
 QuanTable* qtab[16];
 Huffman* hdc[16];
 Huffman* hac[16];
+
+/* ********************************************************** */
+vector<pair<int, int> > parallel_task;
+
+struct PThreadParam {
+	YUV* yuv;
+	int task_start_idx;
+	int task_end_idx;
+};
+
+void* parallel_blk_y_func(void* ptr) {
+	PThreadParam* param = (PThreadParam*)ptr;
+
+	for (int task_idx = param->task_start_idx; task_idx < param->task_end_idx; task_idx++) {
+		int i = parallel_task[task_idx].first;
+		int j = parallel_task[task_idx].second;
+		int st_x = i * BLOCK_SIZE;
+		int st_y = j * BLOCK_SIZE;
+
+		// Y
+		for (int x = 0; x < BLOCK_SIZE; x++) {
+			for (int y = 0; y < BLOCK_SIZE; y++) {
+				blks_y[i][j].tmp_buf[x][y] = param->yuv->y[st_x + x][st_y + y];
+			}
+		}
+		go_transform_block(blks_y[i][j], YUV_ENUM::YUV_Y);
+	}
+	pthread_exit(NULL);
+}
+
+void* parallel_blk_cb_func(void* ptr) {
+	PThreadParam* param = (PThreadParam*)ptr;
+
+	for (int task_idx = param->task_start_idx; task_idx < param->task_end_idx; task_idx++) {
+		int i = parallel_task[task_idx].first;
+		int j = parallel_task[task_idx].second;
+		int st_x = i * BLOCK_SIZE;
+		int st_y = j * BLOCK_SIZE;
+
+		// Cb
+		for (int x = 0; x < BLOCK_SIZE; x++) {
+			for (int y = 0; y < BLOCK_SIZE; y++) {
+				int xx = st_x + x * 2;
+				int yy = st_y + y * 2;
+				blks_cb[i][j].tmp_buf[x][y] = (param->yuv->cb[xx][yy] + param->yuv->cb[xx][yy + 1] + param->yuv->cb[xx + 1][yy] + param->yuv->cb[xx + 1][yy + 1]) / 4.0;
+			}
+		}
+		go_transform_block(blks_cb[i][j], YUV_ENUM::YUV_C);
+	}
+	pthread_exit(NULL);
+}
+
+void* parallel_blk_cr_func(void* ptr) {
+	PThreadParam* param = (PThreadParam*)ptr;
+
+	for (int task_idx = param->task_start_idx; task_idx < param->task_end_idx; task_idx++) {
+		int i = parallel_task[task_idx].first;
+		int j = parallel_task[task_idx].second;
+		int st_x = i * BLOCK_SIZE;
+		int st_y = j * BLOCK_SIZE;
+
+		// Cr
+		for (int x = 0; x < BLOCK_SIZE; x++) {
+			for (int y = 0; y < BLOCK_SIZE; y++) {
+				int xx = st_x + x * 2;
+				int yy = st_y + y * 2;
+				blks_cr[i][j].tmp_buf[x][y] = (param->yuv->cr[xx][yy] + param->yuv->cr[xx][yy + 1] + param->yuv->cr[xx + 1][yy] + param->yuv->cr[xx + 1][yy + 1]) / 4.0;
+			}
+		}
+		go_transform_block(blks_cr[i][j], YUV_ENUM::YUV_C);
+	}
+	pthread_exit(NULL);
+}
+
+/* ********************************************************** */
 
 inline double alpha(int x) {
 	if (x == 0) {
@@ -244,46 +322,103 @@ void encode(YUV &yuv) {
 		blks_cr[i].resize(b_width);
 	}
 
-	// can parallel
+	PThreadParam* pparam = new PThreadParam[jpeg_thread_num];
+	pthread_t* tid = new pthread_t[jpeg_thread_num];
+	int seg;
+	int remain;
+	int pos;
+
+	// Y parallel
+	parallel_task.clear();
 	for (int i = 0; i < b_height; i++) {
 		for (int j = 0; j < b_width; j++) {
-			int st_x = i * BLOCK_SIZE;
-			int st_y = j * BLOCK_SIZE;
-
-			// Y
-			for (int x = 0; x < BLOCK_SIZE; x++) {
-				for (int y = 0; y < BLOCK_SIZE; y++) {
-					blks_y[i][j].tmp_buf[x][y] = yuv.y[st_x + x][st_y + y];
-				}
-			}
-			//printf("type=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_Y, st_x, st_y);
-			go_transform_block(blks_y[i][j], YUV_ENUM::YUV_Y);
-
-			if (i % 2 != 0 || j % 2 != 0) continue;
-
-			// Cb
-			for (int x = 0; x < BLOCK_SIZE; x++) {
-				for (int y = 0; y < BLOCK_SIZE; y++) {
-					int xx = st_x + x * 2;
-					int yy = st_y + y * 2;
-					blks_cb[i][j].tmp_buf[x][y] = (yuv.cb[xx][yy] + yuv.cb[xx][yy + 1] + yuv.cb[xx + 1][yy] + yuv.cb[xx + 1][yy + 1]) / 4.0;
-				}
-			}
-			//printf("\ntype=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_C, st_x, st_y);
-			go_transform_block(blks_cb[i][j], YUV_ENUM::YUV_C);
-
-			// Cr
-			for (int x = 0; x < BLOCK_SIZE; x++) {
-				for (int y = 0; y < BLOCK_SIZE; y++) {
-					int xx = st_x + x * 2;
-					int yy = st_y + y * 2;
-					blks_cr[i][j].tmp_buf[x][y] = (yuv.cr[xx][yy] + yuv.cr[xx][yy + 1] + yuv.cr[xx + 1][yy] + yuv.cr[xx + 1][yy + 1]) / 4.0;
-				}
-			}
-			//printf("type=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_C, st_x, st_y);
-			go_transform_block(blks_cr[i][j], YUV_ENUM::YUV_C);
+			parallel_task.push_back(make_pair(i, j));
 		}
 	}
+
+	seg = (int)parallel_task.size() / jpeg_thread_num;
+	remain = (int)parallel_task.size() % jpeg_thread_num;
+	pos = 0;
+	for (int i = 0; i < jpeg_thread_num; i++) {
+		pparam[i].yuv = &yuv;
+		pparam[i].task_start_idx = pos;
+		pparam[i].task_end_idx = pos + seg;
+		if (remain > 0) {
+			pparam[i].task_end_idx++;
+			remain--;
+		}
+		pos = pparam[i].task_end_idx;
+
+		pthread_create(&tid[i], NULL, &parallel_blk_y_func, (void*)&pparam[i]);
+	}
+
+	for (int i = 0; i < jpeg_thread_num; i++) {
+		pthread_join(tid[i], NULL);
+	}
+
+	// Cb parallel
+	parallel_task.clear();
+	for (int i = 0; i < b_height; i++) {
+		for (int j = 0; j < b_width; j++) {
+			if (i % 2 != 0 || j % 2 != 0) continue;
+			parallel_task.push_back(make_pair(i, j));
+		}
+	}
+
+	seg = (int)parallel_task.size() / jpeg_thread_num;
+	remain = (int)parallel_task.size() % jpeg_thread_num;
+	pos = 0;
+	for (int i = 0; i < jpeg_thread_num; i++) {
+		pparam[i].yuv = &yuv;
+		pparam[i].task_start_idx = pos;
+		pparam[i].task_end_idx = pos + seg;
+		if (remain > 0) {
+			pparam[i].task_end_idx++;
+			remain--;
+		}
+		pos = pparam[i].task_end_idx;
+
+		pthread_create(&tid[i], NULL, &parallel_blk_cb_func, (void*)&pparam[i]);
+	}
+
+	for (int i = 0; i < jpeg_thread_num; i++) {
+		pthread_join(tid[i], NULL);
+	}
+
+	// Cr parallel
+	/*
+	 * no need to reconstruct task since cr task is same as cb
+	parallel_task.clear();
+	for (int i = 0; i < b_height; i++) {
+		for (int j = 0; j < b_width; j++) {
+			if (i % 2 != 0 || j % 2 != 0) continue;
+			parallel_task.push_back(make_pair(i, j));
+		}
+	}
+	*/
+
+	seg = (int)parallel_task.size() / jpeg_thread_num;
+	remain = (int)parallel_task.size() % jpeg_thread_num;
+	pos = 0;
+	for (int i = 0; i < jpeg_thread_num; i++) {
+		pparam[i].yuv = &yuv;
+		pparam[i].task_start_idx = pos;
+		pparam[i].task_end_idx = pos + seg;
+		if (remain > 0) {
+			pparam[i].task_end_idx++;
+			remain--;
+		}
+		pos = pparam[i].task_end_idx;
+
+		pthread_create(&tid[i], NULL, &parallel_blk_cr_func, (void*)&pparam[i]);
+	}
+
+	for (int i = 0; i < jpeg_thread_num; i++) {
+		pthread_join(tid[i], NULL);
+	}
+
+	delete []pparam;
+	delete []tid;
 }
 
 /*
@@ -527,6 +662,8 @@ void write_to_file(const char* output) {
 }
 
 void jpeg_init(int thread_num) {
+	jpeg_thread_num = thread_num;
+
 	for (int i = 0; i < 16; i++) {
 		qtab[i] = NULL;
 		hdc[i] = NULL;
