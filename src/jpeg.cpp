@@ -3,6 +3,7 @@
 #include <cassert>
 #include <vector>
 #include <algorithm>
+#include <OpenCL/cl.h>
 
 #include "jpeg.h"
 #include "bmp.h"
@@ -25,6 +26,17 @@ vector<vector<Block> > blks_cr;
 QuanTable* qtab[16];
 Huffman* hdc[16];
 Huffman* hac[16];
+
+struct OpenCL {
+	cl_context context;
+	cl_kernel kernel_fdct;
+	cl_command_queue command_queue;
+	size_t global_threads[10];
+	size_t local_threads[10];
+	cl_uint work_dim;
+};
+
+OpenCL opencl;
 
 inline double alpha(int x) {
 	if (x == 0) {
@@ -195,8 +207,38 @@ void rle(vector<RLE>& rle_list, const int zz[BLOCK_SIZE * BLOCK_SIZE]) {
 
 void go_transform_block(Block& blk, YUV_ENUM type) {
 	double f[BLOCK_SIZE][BLOCK_SIZE];
+	cl_float f2[BLOCK_SIZE * BLOCK_SIZE];
 
-	fdct(f, blk.tmp_buf);
+	// opencl fdct
+	cl_int status;
+
+	cl_mem buffer_f = clCreateBuffer(opencl.context, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR, BLOCK_SIZE * BLOCK_SIZE * sizeof(cl_float), f2, &status);
+	assert(status == CL_SUCCESS);
+
+	cl_mem buffer_tmp_buf = clCreateBuffer(opencl.context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, BLOCK_SIZE * BLOCK_SIZE * sizeof(cl_float), blk.tmp_buf, &status);
+	assert(status == CL_SUCCESS);
+
+	status = clSetKernelArg(opencl.kernel_fdct, 0, sizeof(cl_mem), (void*)&buffer_f);
+	assert(status == CL_SUCCESS);
+
+	status = clSetKernelArg(opencl.kernel_fdct, 1, sizeof(cl_mem), (void*)&buffer_tmp_buf);
+	assert(status == CL_SUCCESS);
+
+	status = clEnqueueNDRangeKernel(opencl.command_queue, opencl.kernel_fdct, opencl.work_dim, NULL, opencl.global_threads, opencl.local_threads, 0, NULL, NULL);
+	assert(status == CL_SUCCESS);
+
+	clEnqueueReadBuffer(opencl.command_queue, buffer_f, CL_TRUE, 0, BLOCK_SIZE * BLOCK_SIZE * sizeof(cl_float), f2, 0, NULL, NULL);
+
+	for (int i = 0; i < BLOCK_SIZE; i++) {
+		for (int j = 0; j < BLOCK_SIZE; j++) {
+			f[i][j] = f2[i * BLOCK_SIZE + j];
+		}
+	}
+
+	clReleaseMemObject(buffer_f);
+	clReleaseMemObject(buffer_tmp_buf);
+
+	// TODO: opencl quantize
 	quantize(blk.data, f, type);
 
 	int zz[BLOCK_SIZE * BLOCK_SIZE];
@@ -253,7 +295,7 @@ void encode(YUV &yuv) {
 			// Y
 			for (int x = 0; x < BLOCK_SIZE; x++) {
 				for (int y = 0; y < BLOCK_SIZE; y++) {
-					blks_y[i][j].tmp_buf[x][y] = yuv.y[st_x + x][st_y + y];
+					blks_y[i][j].tmp_buf[x * BLOCK_SIZE + y] = yuv.y[st_x + x][st_y + y];
 				}
 			}
 			//printf("type=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_Y, st_x, st_y);
@@ -266,7 +308,7 @@ void encode(YUV &yuv) {
 				for (int y = 0; y < BLOCK_SIZE; y++) {
 					int xx = st_x + x * 2;
 					int yy = st_y + y * 2;
-					blks_cb[i][j].tmp_buf[x][y] = (yuv.cb[xx][yy] + yuv.cb[xx][yy + 1] + yuv.cb[xx + 1][yy] + yuv.cb[xx + 1][yy + 1]) / 4.0;
+					blks_cb[i][j].tmp_buf[x * BLOCK_SIZE + y] = (yuv.cb[xx][yy] + yuv.cb[xx][yy + 1] + yuv.cb[xx + 1][yy] + yuv.cb[xx + 1][yy + 1]) / 4.0;
 				}
 			}
 			//printf("\ntype=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_C, st_x, st_y);
@@ -277,12 +319,13 @@ void encode(YUV &yuv) {
 				for (int y = 0; y < BLOCK_SIZE; y++) {
 					int xx = st_x + x * 2;
 					int yy = st_y + y * 2;
-					blks_cr[i][j].tmp_buf[x][y] = (yuv.cr[xx][yy] + yuv.cr[xx][yy + 1] + yuv.cr[xx + 1][yy] + yuv.cr[xx + 1][yy + 1]) / 4.0;
+					blks_cr[i][j].tmp_buf[x * BLOCK_SIZE + y] = (yuv.cr[xx][yy] + yuv.cr[xx][yy + 1] + yuv.cr[xx + 1][yy] + yuv.cr[xx + 1][yy + 1]) / 4.0;
 				}
 			}
 			//printf("type=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_C, st_x, st_y);
 			go_transform_block(blks_cr[i][j], YUV_ENUM::YUV_C);
 		}
+		printf("%d/%d\n", i, b_height);
 	}
 }
 
@@ -541,6 +584,58 @@ void jpeg_init(int thread_num) {
 
 	hac[YUV_ENUM::YUV_Y] = new Huffman(STD_HUFTAB_LUMIN_AC);
 	hac[YUV_ENUM::YUV_C] = new Huffman(STD_HUFTAB_CHROM_AC);
+
+	// opencl init
+	cl_int status;
+
+	// platform
+	cl_platform_id platform_id;
+	cl_uint platform_id_got;
+	status = clGetPlatformIDs(1, &platform_id, &platform_id_got);
+	assert(status == CL_SUCCESS && platform_id_got == 1);
+	printf("Get platform: %d\n", platform_id_got);
+
+	// device
+	cl_device_id GPU[5];
+	cl_uint GPU_id_got;
+	status = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_GPU, 5, GPU, &GPU_id_got);
+	assert(status == CL_SUCCESS);
+	printf("Get GPU: %d\n", GPU_id_got);
+
+	// context
+	opencl.context = clCreateContext(NULL, GPU_id_got, GPU, NULL, NULL, &status);
+	assert(status == CL_SUCCESS);
+
+	// command queue
+	opencl.command_queue = clCreateCommandQueue(opencl.context, GPU[0], 0, &status);
+	assert(status == CL_SUCCESS);
+
+	// kernel source
+	FILE* kernel_fp = fopen("kernel/kernel.cl", "r");
+	assert(kernel_fp != NULL);
+
+	char* kernelBuffer = new char[65536];
+	const char* constKernelSource = kernelBuffer;
+	size_t kernelLength = fread(kernelBuffer, 1, 65536, kernel_fp);
+	cl_program program = clCreateProgramWithSource(opencl.context, 1, &constKernelSource, &kernelLength, &status);
+	assert(status == CL_SUCCESS);
+
+	// build program
+	status = clBuildProgram(program, GPU_id_got, GPU, NULL, NULL, NULL);
+	static char *buffer[65536];
+	status = clGetProgramBuildInfo(program, GPU[0], CL_PROGRAM_BUILD_LOG, 65536, buffer, NULL);
+	assert(status == CL_SUCCESS);
+
+	// create kernel fdct
+	opencl.kernel_fdct = clCreateKernel(program, "fdct", &status);
+	assert(status == CL_SUCCESS);
+
+	opencl.work_dim = 1;
+	opencl.global_threads[0] = (size_t)(BLOCK_SIZE * BLOCK_SIZE);
+	opencl.local_threads[0] = (size_t)1;
+
+	fclose(kernel_fp);
+	delete []kernelBuffer;
 }
 
 void convert_bmp_to_jpg(const char* input_path, const char* output_path) {
