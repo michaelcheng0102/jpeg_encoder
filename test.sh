@@ -6,6 +6,6 @@ do
    INPUT_FILE="benchmark/$i.bmp"
    OUTPUT_FILE="output/$i.jpg"
    echo "image: $INPUT_FILE"
-   ./jpeg_encoder $INPUT_FILE $OUTPUT_FILE $1
+   time ./jpeg_encoder $INPUT_FILE $OUTPUT_FILE $1
    # or do whatever with individual element of the array
 done
