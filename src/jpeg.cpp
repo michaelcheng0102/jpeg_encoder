@@ -30,7 +30,7 @@ Huffman* hac[16];
 struct OpenCL {
 	cl_context context;
 	cl_program program;
-	cl_kernel kernel_fdct;
+	cl_kernel kernel_fdct_quantize;
 	cl_command_queue command_queue;
 	size_t global_threads[10];
 	size_t local_threads[10];
@@ -102,30 +102,6 @@ int category_encode(int val) {
 		cnt++;
 	}
 	return cnt;
-}
-
-void fdct(double f[BLOCK_SIZE][BLOCK_SIZE], const double yuv_data[BLOCK_SIZE][BLOCK_SIZE]) {
-	for (int u = 0; u < BLOCK_SIZE; u++) {
-		for (int v = 0; v < BLOCK_SIZE; v++) {
-			f[u][v] = 0.0;
-			for (int x = 0; x < BLOCK_SIZE; x++) {
-				for (int y = 0; y < BLOCK_SIZE; y++) {
-					double cc = cos((2.0 * x + 1.0) * u * PI / 16.0) * cos((2.0 * y + 1.0) * v * PI / 16.0);
-					f[u][v] += yuv_data[x][y] * cc;
-				}
-			}
-			double aa = alpha(u) * alpha(v);
-			f[u][v] = f[u][v] * aa / 40000.0;
-		}
-	}
-}
-
-void quantize(int f1[BLOCK_SIZE][BLOCK_SIZE], const double f2[BLOCK_SIZE][BLOCK_SIZE], YUV_ENUM type) {
-	for (int u = 0; u < BLOCK_SIZE; u++) {
-		for (int v = 0; v < BLOCK_SIZE; v++) {
-			f1[u][v] = f2[u][v] / qtab[type]->table[u][v];
-		}
-	}
 }
 
 void zigzag(int zz[BLOCK_SIZE * BLOCK_SIZE], const int f[BLOCK_SIZE][BLOCK_SIZE]) {
@@ -291,8 +267,8 @@ void encode(YUV &yuv) {
 	status = clBuildProgram(opencl.program, GPU_id_got, GPU, NULL, NULL, NULL);
 	assert(status == CL_SUCCESS);
 
-	// create kernel fdct
-	opencl.kernel_fdct = clCreateKernel(opencl.program, "fdct", &status);
+	// create kernel fdct_quantize
+	opencl.kernel_fdct_quantize = clCreateKernel(opencl.program, "fdct_quantize", &status);
 	assert(status == CL_SUCCESS);
 
 	opencl.work_dim = 1;
@@ -356,19 +332,19 @@ void encode(YUV &yuv) {
 	cl_mem buffer_y = clCreateBuffer(opencl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, jpeg_height * jpeg_width * sizeof(cl_float), cl_y_buf, &status);
 	assert(status == CL_SUCCESS);
 
-	status = clSetKernelArg(opencl.kernel_fdct, 0, sizeof(cl_mem), (void*)&buffer_y_f);
+	status = clSetKernelArg(opencl.kernel_fdct_quantize, 0, sizeof(cl_mem), (void*)&buffer_y_f);
 	assert(status == CL_SUCCESS);
 
-	status = clSetKernelArg(opencl.kernel_fdct, 1, sizeof(cl_mem), (void*)&buffer_y);
+	status = clSetKernelArg(opencl.kernel_fdct_quantize, 1, sizeof(cl_mem), (void*)&buffer_y);
 	assert(status == CL_SUCCESS);
 
-	status = clSetKernelArg(opencl.kernel_fdct, 2, sizeof(cl_mem), (void*)&buffer_qtab_y);
+	status = clSetKernelArg(opencl.kernel_fdct_quantize, 2, sizeof(cl_mem), (void*)&buffer_qtab_y);
 	assert(status == CL_SUCCESS);
 
-	status = clSetKernelArg(opencl.kernel_fdct, 3, sizeof(cl_mem), (void*)&buffer_width);
+	status = clSetKernelArg(opencl.kernel_fdct_quantize, 3, sizeof(cl_mem), (void*)&buffer_width);
 	assert(status == CL_SUCCESS);
 
-	status = clEnqueueNDRangeKernel(opencl.command_queue, opencl.kernel_fdct, opencl.work_dim, NULL, opencl.global_threads, opencl.local_threads, 0, NULL, NULL);
+	status = clEnqueueNDRangeKernel(opencl.command_queue, opencl.kernel_fdct_quantize, opencl.work_dim, NULL, opencl.global_threads, opencl.local_threads, 0, NULL, NULL);
 	assert(status == CL_SUCCESS);
 
 	clEnqueueReadBuffer(opencl.command_queue, buffer_y_f, CL_TRUE, 0, jpeg_height * jpeg_width * sizeof(cl_float), cl_y_f_buf, 0, NULL, NULL);
@@ -380,19 +356,19 @@ void encode(YUV &yuv) {
 	cl_mem buffer_cb = clCreateBuffer(opencl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, jpeg_height * jpeg_width * sizeof(cl_float), cl_cb_buf, &status);
 	assert(status == CL_SUCCESS);
 
-	status = clSetKernelArg(opencl.kernel_fdct, 0, sizeof(cl_mem), (void*)&buffer_cb_f);
+	status = clSetKernelArg(opencl.kernel_fdct_quantize, 0, sizeof(cl_mem), (void*)&buffer_cb_f);
 	assert(status == CL_SUCCESS);
 
-	status = clSetKernelArg(opencl.kernel_fdct, 1, sizeof(cl_mem), (void*)&buffer_cb);
+	status = clSetKernelArg(opencl.kernel_fdct_quantize, 1, sizeof(cl_mem), (void*)&buffer_cb);
 	assert(status == CL_SUCCESS);
 
-	status = clSetKernelArg(opencl.kernel_fdct, 2, sizeof(cl_mem), (void*)&buffer_qtab_c);
+	status = clSetKernelArg(opencl.kernel_fdct_quantize, 2, sizeof(cl_mem), (void*)&buffer_qtab_c);
 	assert(status == CL_SUCCESS);
 
-	status = clSetKernelArg(opencl.kernel_fdct, 3, sizeof(cl_mem), (void*)&buffer_width);
+	status = clSetKernelArg(opencl.kernel_fdct_quantize, 3, sizeof(cl_mem), (void*)&buffer_width);
 	assert(status == CL_SUCCESS);
 
-	status = clEnqueueNDRangeKernel(opencl.command_queue, opencl.kernel_fdct, opencl.work_dim, NULL, opencl.global_threads, opencl.local_threads, 0, NULL, NULL);
+	status = clEnqueueNDRangeKernel(opencl.command_queue, opencl.kernel_fdct_quantize, opencl.work_dim, NULL, opencl.global_threads, opencl.local_threads, 0, NULL, NULL);
 	assert(status == CL_SUCCESS);
 
 	clEnqueueReadBuffer(opencl.command_queue, buffer_cb_f, CL_TRUE, 0, jpeg_height * jpeg_width * sizeof(cl_float), cl_cb_f_buf, 0, NULL, NULL);
@@ -403,19 +379,19 @@ void encode(YUV &yuv) {
 	cl_mem buffer_cr = clCreateBuffer(opencl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, jpeg_height * jpeg_width * sizeof(cl_float), cl_cr_buf, &status);
 	assert(status == CL_SUCCESS);
 
-	status = clSetKernelArg(opencl.kernel_fdct, 0, sizeof(cl_mem), (void*)&buffer_cr_f);
+	status = clSetKernelArg(opencl.kernel_fdct_quantize, 0, sizeof(cl_mem), (void*)&buffer_cr_f);
 	assert(status == CL_SUCCESS);
 
-	status = clSetKernelArg(opencl.kernel_fdct, 1, sizeof(cl_mem), (void*)&buffer_cr);
+	status = clSetKernelArg(opencl.kernel_fdct_quantize, 1, sizeof(cl_mem), (void*)&buffer_cr);
 	assert(status == CL_SUCCESS);
 
-	status = clSetKernelArg(opencl.kernel_fdct, 2, sizeof(cl_mem), (void*)&buffer_qtab_c);
+	status = clSetKernelArg(opencl.kernel_fdct_quantize, 2, sizeof(cl_mem), (void*)&buffer_qtab_c);
 	assert(status == CL_SUCCESS);
 
-	status = clSetKernelArg(opencl.kernel_fdct, 3, sizeof(cl_mem), (void*)&buffer_width);
+	status = clSetKernelArg(opencl.kernel_fdct_quantize, 3, sizeof(cl_mem), (void*)&buffer_width);
 	assert(status == CL_SUCCESS);
 
-	status = clEnqueueNDRangeKernel(opencl.command_queue, opencl.kernel_fdct, opencl.work_dim, NULL, opencl.global_threads, opencl.local_threads, 0, NULL, NULL);
+	status = clEnqueueNDRangeKernel(opencl.command_queue, opencl.kernel_fdct_quantize, opencl.work_dim, NULL, opencl.global_threads, opencl.local_threads, 0, NULL, NULL);
 	assert(status == CL_SUCCESS);
 
 	clEnqueueReadBuffer(opencl.command_queue, buffer_cr_f, CL_TRUE, 0, jpeg_height * jpeg_width * sizeof(cl_float), cl_cr_f_buf, 0, NULL, NULL);
@@ -473,7 +449,7 @@ void encode(YUV &yuv) {
 	clReleaseContext(opencl.context);
 	clReleaseCommandQueue(opencl.command_queue);
 	clReleaseProgram(opencl.program);
-	clReleaseKernel(opencl.kernel_fdct);
+	clReleaseKernel(opencl.kernel_fdct_quantize);
 	clReleaseMemObject(buffer_width);
 	clReleaseMemObject(buffer_qtab_y);
 	clReleaseMemObject(buffer_qtab_c);

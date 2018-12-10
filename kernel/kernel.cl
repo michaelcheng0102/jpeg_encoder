@@ -2,7 +2,7 @@
 #define PI 3.14159
 #define BLOCK_SIZE 8
 
-__kernel void fdct(__global double* f, __global double* yuv_data, __global int* quan_tab, __global int* width) {
+__kernel void fdct_quantize(__global double* f, __global double* yuv_data, __global int* quan_tab, __global int* width) {
 	int wid = *width;
 	int idx = get_global_id(0);
 

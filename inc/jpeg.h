@@ -15,8 +15,6 @@ void RGB2YCbCr(YUV& yuv, const BMP& bmp);
 
 int category_encode(int val);
 
-void fdct(double f[BLOCK_SIZE][BLOCK_SIZE], const double yuv_data[BLOCK_SIZE][BLOCK_SIZE]);
-void quantize(int f1[BLOCK_SIZE][BLOCK_SIZE], const double f2[BLOCK_SIZE][BLOCK_SIZE], YUV_ENUM type);
 void zigzag(int zz[BLOCK_SIZE * BLOCK_SIZE], const int f[BLOCK_SIZE][BLOCK_SIZE]);
 void rle(std::vector<RLE>& rle_list, const int zz[BLOCK_SIZE * BLOCK_SIZE]);
 
