@@ -205,8 +205,6 @@ void rle(vector<RLE>& rle_list, const int zz[BLOCK_SIZE * BLOCK_SIZE]) {
 }
 
 void go_transform_block(Block& blk, YUV_ENUM type) {
-	quantize(blk.data, blk.tmp_buf, type);
-
 	int zz[BLOCK_SIZE * BLOCK_SIZE];
 	zigzag(zz, blk.data);
 
@@ -291,8 +289,6 @@ void encode(YUV &yuv) {
 
 	// build program
 	status = clBuildProgram(opencl.program, GPU_id_got, GPU, NULL, NULL, NULL);
-	static char *buffer[65536];
-	status = clGetProgramBuildInfo(opencl.program, GPU[0], CL_PROGRAM_BUILD_LOG, 65536, buffer, NULL);
 	assert(status == CL_SUCCESS);
 
 	// create kernel fdct
@@ -316,6 +312,9 @@ void encode(YUV &yuv) {
 	cl_float* cl_cb_f_buf = new cl_float[jpeg_height * jpeg_width];
 	cl_float* cl_cr_f_buf = new cl_float[jpeg_height * jpeg_width];
 
+	cl_int* cl_qtab_y_buf = new cl_int[BLOCK_SIZE * BLOCK_SIZE];
+	cl_int* cl_qtab_c_buf = new cl_int[BLOCK_SIZE * BLOCK_SIZE];
+
 	for (int i = 0; i < jpeg_height; i++) {
 		for (int j = 0; j < jpeg_width; j++) {
 			cl_y_buf[i * jpeg_width + j] = yuv.y[i][j];
@@ -333,10 +332,23 @@ void encode(YUV &yuv) {
 			}
 		}
 	}
-	cl_uint cl_width = jpeg_width;
+	for (int i = 0; i < BLOCK_SIZE; i++) {
+		for (int j = 0; j < BLOCK_SIZE; j++) {
+			cl_qtab_y_buf[i * BLOCK_SIZE + j] = qtab[YUV_ENUM::YUV_Y]->table[i][j];
+			cl_qtab_c_buf[i * BLOCK_SIZE + j] = qtab[YUV_ENUM::YUV_C]->table[i][j];
+		}
+	}
+
+	// quantize table buffer
+	cl_mem buffer_qtab_y = clCreateBuffer(opencl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, BLOCK_SIZE * BLOCK_SIZE * sizeof(cl_int), cl_qtab_y_buf, &status);
+	assert(status == CL_SUCCESS);
+	cl_mem buffer_qtab_c = clCreateBuffer(opencl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, BLOCK_SIZE * BLOCK_SIZE * sizeof(cl_int), cl_qtab_c_buf, &status);
+	assert(status == CL_SUCCESS);
 
 	// width buffer
-	cl_mem buffer_width = clCreateBuffer(opencl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, 1 * sizeof(cl_uint), &cl_width, &status);
+	cl_int cl_width = jpeg_width;
+	cl_mem buffer_width = clCreateBuffer(opencl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, 1 * sizeof(cl_int), &cl_width, &status);
+	assert(status == CL_SUCCESS);
 
 	// y
 	cl_mem buffer_y_f = clCreateBuffer(opencl.context, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR, jpeg_height * jpeg_width * sizeof(cl_float), cl_y_f_buf, &status);
@@ -350,7 +362,10 @@ void encode(YUV &yuv) {
 	status = clSetKernelArg(opencl.kernel_fdct, 1, sizeof(cl_mem), (void*)&buffer_y);
 	assert(status == CL_SUCCESS);
 
-	status = clSetKernelArg(opencl.kernel_fdct, 2, sizeof(cl_mem), (void*)&buffer_width);
+	status = clSetKernelArg(opencl.kernel_fdct, 2, sizeof(cl_mem), (void*)&buffer_qtab_y);
+	assert(status == CL_SUCCESS);
+
+	status = clSetKernelArg(opencl.kernel_fdct, 3, sizeof(cl_mem), (void*)&buffer_width);
 	assert(status == CL_SUCCESS);
 
 	status = clEnqueueNDRangeKernel(opencl.command_queue, opencl.kernel_fdct, opencl.work_dim, NULL, opencl.global_threads, opencl.local_threads, 0, NULL, NULL);
@@ -371,7 +386,10 @@ void encode(YUV &yuv) {
 	status = clSetKernelArg(opencl.kernel_fdct, 1, sizeof(cl_mem), (void*)&buffer_cb);
 	assert(status == CL_SUCCESS);
 
-	status = clSetKernelArg(opencl.kernel_fdct, 2, sizeof(cl_mem), (void*)&buffer_width);
+	status = clSetKernelArg(opencl.kernel_fdct, 2, sizeof(cl_mem), (void*)&buffer_qtab_c);
+	assert(status == CL_SUCCESS);
+
+	status = clSetKernelArg(opencl.kernel_fdct, 3, sizeof(cl_mem), (void*)&buffer_width);
 	assert(status == CL_SUCCESS);
 
 	status = clEnqueueNDRangeKernel(opencl.command_queue, opencl.kernel_fdct, opencl.work_dim, NULL, opencl.global_threads, opencl.local_threads, 0, NULL, NULL);
@@ -391,7 +409,10 @@ void encode(YUV &yuv) {
 	status = clSetKernelArg(opencl.kernel_fdct, 1, sizeof(cl_mem), (void*)&buffer_cr);
 	assert(status == CL_SUCCESS);
 
-	status = clSetKernelArg(opencl.kernel_fdct, 2, sizeof(cl_mem), (void*)&buffer_width);
+	status = clSetKernelArg(opencl.kernel_fdct, 2, sizeof(cl_mem), (void*)&buffer_qtab_c);
+	assert(status == CL_SUCCESS);
+
+	status = clSetKernelArg(opencl.kernel_fdct, 3, sizeof(cl_mem), (void*)&buffer_width);
 	assert(status == CL_SUCCESS);
 
 	status = clEnqueueNDRangeKernel(opencl.command_queue, opencl.kernel_fdct, opencl.work_dim, NULL, opencl.global_threads, opencl.local_threads, 0, NULL, NULL);
@@ -411,7 +432,7 @@ void encode(YUV &yuv) {
 				for (int y = 0; y < BLOCK_SIZE; y++) {
 					int xx = st_x + x;
 					int yy = st_y + y;
-					blks_y[i][j].tmp_buf[x][y] = cl_y_f_buf[xx * jpeg_width + yy];
+					blks_y[i][j].data[x][y] = cl_y_f_buf[xx * jpeg_width + yy];
 				}
 			}
 			go_transform_block(blks_y[i][j], YUV_ENUM::YUV_Y);
@@ -423,7 +444,7 @@ void encode(YUV &yuv) {
 				for (int y = 0; y < BLOCK_SIZE; y++) {
 					int xx = st_x + x;
 					int yy = st_y + y;
-					blks_cb[i][j].tmp_buf[x][y] = cl_cb_f_buf[xx * jpeg_width + yy];
+					blks_cb[i][j].data[x][y] = cl_cb_f_buf[xx * jpeg_width + yy];
 				}
 			}
 			go_transform_block(blks_cb[i][j], YUV_ENUM::YUV_C);
@@ -433,12 +454,11 @@ void encode(YUV &yuv) {
 				for (int y = 0; y < BLOCK_SIZE; y++) {
 					int xx = st_x + x;
 					int yy = st_y + y;
-					blks_cr[i][j].tmp_buf[x][y] = cl_cr_f_buf[xx * jpeg_width + yy];
+					blks_cr[i][j].data[x][y] = cl_cr_f_buf[xx * jpeg_width + yy];
 				}
 			}
 			go_transform_block(blks_cr[i][j], YUV_ENUM::YUV_C);
 		}
-		printf("%d/%d\n", i, b_height);
 	}
 	delete []cl_y_buf;
 	delete []cl_cb_buf;
@@ -446,6 +466,8 @@ void encode(YUV &yuv) {
 	delete []cl_y_f_buf;
 	delete []cl_cb_f_buf;
 	delete []cl_cr_f_buf;
+	delete []cl_qtab_y_buf;
+	delete []cl_qtab_c_buf;
 
 	// end
 	clReleaseContext(opencl.context);
@@ -453,6 +475,8 @@ void encode(YUV &yuv) {
 	clReleaseProgram(opencl.program);
 	clReleaseKernel(opencl.kernel_fdct);
 	clReleaseMemObject(buffer_width);
+	clReleaseMemObject(buffer_qtab_y);
+	clReleaseMemObject(buffer_qtab_c);
 	clReleaseMemObject(buffer_y_f);
 	clReleaseMemObject(buffer_y);
 	clReleaseMemObject(buffer_cb_f);
