@@ -10,7 +10,7 @@
 class Block {
 public:
 	int data[BLOCK_SIZE][BLOCK_SIZE];
-	cl_float tmp_buf[BLOCK_SIZE * BLOCK_SIZE];
+	double tmp_buf[BLOCK_SIZE][BLOCK_SIZE];
 	std::vector<RLE> rle_list;
 
 	Block();

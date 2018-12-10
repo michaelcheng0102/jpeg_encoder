@@ -29,14 +29,13 @@ Huffman* hac[16];
 
 struct OpenCL {
 	cl_context context;
+	cl_program program;
 	cl_kernel kernel_fdct;
 	cl_command_queue command_queue;
 	size_t global_threads[10];
 	size_t local_threads[10];
 	cl_uint work_dim;
 };
-
-OpenCL opencl;
 
 inline double alpha(int x) {
 	if (x == 0) {
@@ -206,40 +205,7 @@ void rle(vector<RLE>& rle_list, const int zz[BLOCK_SIZE * BLOCK_SIZE]) {
 }
 
 void go_transform_block(Block& blk, YUV_ENUM type) {
-	double f[BLOCK_SIZE][BLOCK_SIZE];
-	cl_float f2[BLOCK_SIZE * BLOCK_SIZE];
-
-	// opencl fdct
-	cl_int status;
-
-	cl_mem buffer_f = clCreateBuffer(opencl.context, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR, BLOCK_SIZE * BLOCK_SIZE * sizeof(cl_float), f2, &status);
-	assert(status == CL_SUCCESS);
-
-	cl_mem buffer_tmp_buf = clCreateBuffer(opencl.context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, BLOCK_SIZE * BLOCK_SIZE * sizeof(cl_float), blk.tmp_buf, &status);
-	assert(status == CL_SUCCESS);
-
-	status = clSetKernelArg(opencl.kernel_fdct, 0, sizeof(cl_mem), (void*)&buffer_f);
-	assert(status == CL_SUCCESS);
-
-	status = clSetKernelArg(opencl.kernel_fdct, 1, sizeof(cl_mem), (void*)&buffer_tmp_buf);
-	assert(status == CL_SUCCESS);
-
-	status = clEnqueueNDRangeKernel(opencl.command_queue, opencl.kernel_fdct, opencl.work_dim, NULL, opencl.global_threads, opencl.local_threads, 0, NULL, NULL);
-	assert(status == CL_SUCCESS);
-
-	clEnqueueReadBuffer(opencl.command_queue, buffer_f, CL_TRUE, 0, BLOCK_SIZE * BLOCK_SIZE * sizeof(cl_float), f2, 0, NULL, NULL);
-
-	for (int i = 0; i < BLOCK_SIZE; i++) {
-		for (int j = 0; j < BLOCK_SIZE; j++) {
-			f[i][j] = f2[i * BLOCK_SIZE + j];
-		}
-	}
-
-	clReleaseMemObject(buffer_f);
-	clReleaseMemObject(buffer_tmp_buf);
-
-	// TODO: opencl quantize
-	quantize(blk.data, f, type);
+	quantize(blk.data, blk.tmp_buf, type);
 
 	int zz[BLOCK_SIZE * BLOCK_SIZE];
 	zigzag(zz, blk.data);
@@ -286,7 +252,155 @@ void encode(YUV &yuv) {
 		blks_cr[i].resize(b_width);
 	}
 
-	// can parallel
+	//////////////////////////////////////////////////////////////////////////////////////////
+
+	OpenCL opencl;
+	cl_int status;
+
+	// platform
+	cl_platform_id platform_id;
+	cl_uint platform_id_got;
+	status = clGetPlatformIDs(1, &platform_id, &platform_id_got);
+	assert(status == CL_SUCCESS && platform_id_got == 1);
+	printf("Get platform: %d\n", platform_id_got);
+
+	// device
+	cl_device_id GPU[5];
+	cl_uint GPU_id_got;
+	status = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_GPU, 5, GPU, &GPU_id_got);
+	assert(status == CL_SUCCESS);
+	printf("Get GPU: %d\n", GPU_id_got);
+
+	// context
+	opencl.context = clCreateContext(NULL, GPU_id_got, GPU, NULL, NULL, &status);
+	assert(status == CL_SUCCESS);
+
+	// command queue
+	opencl.command_queue = clCreateCommandQueue(opencl.context, GPU[0], 0, &status);
+	assert(status == CL_SUCCESS);
+
+	// kernel source
+	FILE* kernel_fp = fopen("kernel/kernel.cl", "r");
+	assert(kernel_fp != NULL);
+
+	char* kernelBuffer = new char[65536];
+	const char* constKernelSource = kernelBuffer;
+	size_t kernelLength = fread(kernelBuffer, 1, 65536, kernel_fp);
+	opencl.program = clCreateProgramWithSource(opencl.context, 1, &constKernelSource, &kernelLength, &status);
+	assert(status == CL_SUCCESS);
+
+	// build program
+	status = clBuildProgram(opencl.program, GPU_id_got, GPU, NULL, NULL, NULL);
+	static char *buffer[65536];
+	status = clGetProgramBuildInfo(opencl.program, GPU[0], CL_PROGRAM_BUILD_LOG, 65536, buffer, NULL);
+	assert(status == CL_SUCCESS);
+
+	// create kernel fdct
+	opencl.kernel_fdct = clCreateKernel(opencl.program, "fdct", &status);
+	assert(status == CL_SUCCESS);
+
+	opencl.work_dim = 1;
+	opencl.global_threads[0] = (size_t)(jpeg_height * jpeg_width);
+	opencl.local_threads[0] = (size_t)1;
+
+	fclose(kernel_fp);
+	delete []kernelBuffer;
+
+	//////////////////////////////////////////////////////////////////////////////////////////
+
+	cl_float* cl_y_buf = new cl_float[jpeg_height * jpeg_width];
+	cl_float* cl_cb_buf = new cl_float[jpeg_height * jpeg_width];
+	cl_float* cl_cr_buf = new cl_float[jpeg_height * jpeg_width];
+
+	cl_float* cl_y_f_buf = new cl_float[jpeg_height * jpeg_width];
+	cl_float* cl_cb_f_buf = new cl_float[jpeg_height * jpeg_width];
+	cl_float* cl_cr_f_buf = new cl_float[jpeg_height * jpeg_width];
+
+	for (int i = 0; i < jpeg_height; i++) {
+		for (int j = 0; j < jpeg_width; j++) {
+			cl_y_buf[i * jpeg_width + j] = yuv.y[i][j];
+		}
+	}
+	for (int i = 0; i < jpeg_height; i += BLOCK_SIZE * 2) {
+		for (int j = 0; j < jpeg_width; j += BLOCK_SIZE * 2) {
+			for (int x = 0; x < BLOCK_SIZE; x++) {
+				for (int y = 0; y < BLOCK_SIZE; y++) {
+					int xx = i + x * 2;
+					int yy = j + y * 2;
+					cl_cb_buf[(i + x) * jpeg_width + (j + y)] = (yuv.cb[xx][yy] + yuv.cb[xx + 1][yy] + yuv.cb[xx][yy + 1] + yuv.cb[xx + 1][yy + 1]) / 4.0;
+					cl_cr_buf[(i + x) * jpeg_width + (j + y)] = (yuv.cr[xx][yy] + yuv.cr[xx + 1][yy] + yuv.cr[xx][yy + 1] + yuv.cr[xx + 1][yy + 1]) / 4.0;
+				}
+			}
+		}
+	}
+	cl_uint cl_width = jpeg_width;
+
+	// width buffer
+	cl_mem buffer_width = clCreateBuffer(opencl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, 1 * sizeof(cl_uint), &cl_width, &status);
+
+	// y
+	cl_mem buffer_y_f = clCreateBuffer(opencl.context, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR, jpeg_height * jpeg_width * sizeof(cl_float), cl_y_f_buf, &status);
+	assert(status == CL_SUCCESS);
+	cl_mem buffer_y = clCreateBuffer(opencl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, jpeg_height * jpeg_width * sizeof(cl_float), cl_y_buf, &status);
+	assert(status == CL_SUCCESS);
+
+	status = clSetKernelArg(opencl.kernel_fdct, 0, sizeof(cl_mem), (void*)&buffer_y_f);
+	assert(status == CL_SUCCESS);
+
+	status = clSetKernelArg(opencl.kernel_fdct, 1, sizeof(cl_mem), (void*)&buffer_y);
+	assert(status == CL_SUCCESS);
+
+	status = clSetKernelArg(opencl.kernel_fdct, 2, sizeof(cl_mem), (void*)&buffer_width);
+	assert(status == CL_SUCCESS);
+
+	status = clEnqueueNDRangeKernel(opencl.command_queue, opencl.kernel_fdct, opencl.work_dim, NULL, opencl.global_threads, opencl.local_threads, 0, NULL, NULL);
+	assert(status == CL_SUCCESS);
+
+	clEnqueueReadBuffer(opencl.command_queue, buffer_y_f, CL_TRUE, 0, jpeg_height * jpeg_width * sizeof(cl_float), cl_y_f_buf, 0, NULL, NULL);
+
+
+	// cb
+	cl_mem buffer_cb_f = clCreateBuffer(opencl.context, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR, jpeg_height * jpeg_width * sizeof(cl_float), cl_cb_f_buf, &status);
+	assert(status == CL_SUCCESS);
+	cl_mem buffer_cb = clCreateBuffer(opencl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, jpeg_height * jpeg_width * sizeof(cl_float), cl_cb_buf, &status);
+	assert(status == CL_SUCCESS);
+
+	status = clSetKernelArg(opencl.kernel_fdct, 0, sizeof(cl_mem), (void*)&buffer_cb_f);
+	assert(status == CL_SUCCESS);
+
+	status = clSetKernelArg(opencl.kernel_fdct, 1, sizeof(cl_mem), (void*)&buffer_cb);
+	assert(status == CL_SUCCESS);
+
+	status = clSetKernelArg(opencl.kernel_fdct, 2, sizeof(cl_mem), (void*)&buffer_width);
+	assert(status == CL_SUCCESS);
+
+	status = clEnqueueNDRangeKernel(opencl.command_queue, opencl.kernel_fdct, opencl.work_dim, NULL, opencl.global_threads, opencl.local_threads, 0, NULL, NULL);
+	assert(status == CL_SUCCESS);
+
+	clEnqueueReadBuffer(opencl.command_queue, buffer_cb_f, CL_TRUE, 0, jpeg_height * jpeg_width * sizeof(cl_float), cl_cb_f_buf, 0, NULL, NULL);
+
+	// cr
+	cl_mem buffer_cr_f = clCreateBuffer(opencl.context, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR, jpeg_height * jpeg_width * sizeof(cl_float), cl_cr_f_buf, &status);
+	assert(status == CL_SUCCESS);
+	cl_mem buffer_cr = clCreateBuffer(opencl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, jpeg_height * jpeg_width * sizeof(cl_float), cl_cr_buf, &status);
+	assert(status == CL_SUCCESS);
+
+	status = clSetKernelArg(opencl.kernel_fdct, 0, sizeof(cl_mem), (void*)&buffer_cr_f);
+	assert(status == CL_SUCCESS);
+
+	status = clSetKernelArg(opencl.kernel_fdct, 1, sizeof(cl_mem), (void*)&buffer_cr);
+	assert(status == CL_SUCCESS);
+
+	status = clSetKernelArg(opencl.kernel_fdct, 2, sizeof(cl_mem), (void*)&buffer_width);
+	assert(status == CL_SUCCESS);
+
+	status = clEnqueueNDRangeKernel(opencl.command_queue, opencl.kernel_fdct, opencl.work_dim, NULL, opencl.global_threads, opencl.local_threads, 0, NULL, NULL);
+	assert(status == CL_SUCCESS);
+
+	clEnqueueReadBuffer(opencl.command_queue, buffer_cr_f, CL_TRUE, 0, jpeg_height * jpeg_width * sizeof(cl_float), cl_cr_f_buf, 0, NULL, NULL);
+
+	//////////////////////////////////////////////////////////////////////////////////////////
+
 	for (int i = 0; i < b_height; i++) {
 		for (int j = 0; j < b_width; j++) {
 			int st_x = i * BLOCK_SIZE;
@@ -295,10 +409,11 @@ void encode(YUV &yuv) {
 			// Y
 			for (int x = 0; x < BLOCK_SIZE; x++) {
 				for (int y = 0; y < BLOCK_SIZE; y++) {
-					blks_y[i][j].tmp_buf[x * BLOCK_SIZE + y] = yuv.y[st_x + x][st_y + y];
+					int xx = st_x + x;
+					int yy = st_y + y;
+					blks_y[i][j].tmp_buf[x][y] = cl_y_f_buf[xx * jpeg_width + yy];
 				}
 			}
-			//printf("type=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_Y, st_x, st_y);
 			go_transform_block(blks_y[i][j], YUV_ENUM::YUV_Y);
 
 			if (i % 2 != 0 || j % 2 != 0) continue;
@@ -306,27 +421,44 @@ void encode(YUV &yuv) {
 			// Cb
 			for (int x = 0; x < BLOCK_SIZE; x++) {
 				for (int y = 0; y < BLOCK_SIZE; y++) {
-					int xx = st_x + x * 2;
-					int yy = st_y + y * 2;
-					blks_cb[i][j].tmp_buf[x * BLOCK_SIZE + y] = (yuv.cb[xx][yy] + yuv.cb[xx][yy + 1] + yuv.cb[xx + 1][yy] + yuv.cb[xx + 1][yy + 1]) / 4.0;
+					int xx = st_x + x;
+					int yy = st_y + y;
+					blks_cb[i][j].tmp_buf[x][y] = cl_cb_f_buf[xx * jpeg_width + yy];
 				}
 			}
-			//printf("\ntype=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_C, st_x, st_y);
 			go_transform_block(blks_cb[i][j], YUV_ENUM::YUV_C);
 
 			// Cr
 			for (int x = 0; x < BLOCK_SIZE; x++) {
 				for (int y = 0; y < BLOCK_SIZE; y++) {
-					int xx = st_x + x * 2;
-					int yy = st_y + y * 2;
-					blks_cr[i][j].tmp_buf[x * BLOCK_SIZE + y] = (yuv.cr[xx][yy] + yuv.cr[xx][yy + 1] + yuv.cr[xx + 1][yy] + yuv.cr[xx + 1][yy + 1]) / 4.0;
+					int xx = st_x + x;
+					int yy = st_y + y;
+					blks_cr[i][j].tmp_buf[x][y] = cl_cr_f_buf[xx * jpeg_width + yy];
 				}
 			}
-			//printf("type=%d st_x=%d st_y=%d\n", YUV_ENUM::YUV_C, st_x, st_y);
 			go_transform_block(blks_cr[i][j], YUV_ENUM::YUV_C);
 		}
 		printf("%d/%d\n", i, b_height);
 	}
+	delete []cl_y_buf;
+	delete []cl_cb_buf;
+	delete []cl_cr_buf;
+	delete []cl_y_f_buf;
+	delete []cl_cb_f_buf;
+	delete []cl_cr_f_buf;
+
+	// end
+	clReleaseContext(opencl.context);
+	clReleaseCommandQueue(opencl.command_queue);
+	clReleaseProgram(opencl.program);
+	clReleaseKernel(opencl.kernel_fdct);
+	clReleaseMemObject(buffer_width);
+	clReleaseMemObject(buffer_y_f);
+	clReleaseMemObject(buffer_y);
+	clReleaseMemObject(buffer_cb_f);
+	clReleaseMemObject(buffer_cb);
+	clReleaseMemObject(buffer_cr_f);
+	clReleaseMemObject(buffer_cr);
 }
 
 /*
@@ -584,58 +716,6 @@ void jpeg_init(int thread_num) {
 
 	hac[YUV_ENUM::YUV_Y] = new Huffman(STD_HUFTAB_LUMIN_AC);
 	hac[YUV_ENUM::YUV_C] = new Huffman(STD_HUFTAB_CHROM_AC);
-
-	// opencl init
-	cl_int status;
-
-	// platform
-	cl_platform_id platform_id;
-	cl_uint platform_id_got;
-	status = clGetPlatformIDs(1, &platform_id, &platform_id_got);
-	assert(status == CL_SUCCESS && platform_id_got == 1);
-	printf("Get platform: %d\n", platform_id_got);
-
-	// device
-	cl_device_id GPU[5];
-	cl_uint GPU_id_got;
-	status = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_GPU, 5, GPU, &GPU_id_got);
-	assert(status == CL_SUCCESS);
-	printf("Get GPU: %d\n", GPU_id_got);
-
-	// context
-	opencl.context = clCreateContext(NULL, GPU_id_got, GPU, NULL, NULL, &status);
-	assert(status == CL_SUCCESS);
-
-	// command queue
-	opencl.command_queue = clCreateCommandQueue(opencl.context, GPU[0], 0, &status);
-	assert(status == CL_SUCCESS);
-
-	// kernel source
-	FILE* kernel_fp = fopen("kernel/kernel.cl", "r");
-	assert(kernel_fp != NULL);
-
-	char* kernelBuffer = new char[65536];
-	const char* constKernelSource = kernelBuffer;
-	size_t kernelLength = fread(kernelBuffer, 1, 65536, kernel_fp);
-	cl_program program = clCreateProgramWithSource(opencl.context, 1, &constKernelSource, &kernelLength, &status);
-	assert(status == CL_SUCCESS);
-
-	// build program
-	status = clBuildProgram(program, GPU_id_got, GPU, NULL, NULL, NULL);
-	static char *buffer[65536];
-	status = clGetProgramBuildInfo(program, GPU[0], CL_PROGRAM_BUILD_LOG, 65536, buffer, NULL);
-	assert(status == CL_SUCCESS);
-
-	// create kernel fdct
-	opencl.kernel_fdct = clCreateKernel(program, "fdct", &status);
-	assert(status == CL_SUCCESS);
-
-	opencl.work_dim = 1;
-	opencl.global_threads[0] = (size_t)(BLOCK_SIZE * BLOCK_SIZE);
-	opencl.local_threads[0] = (size_t)1;
-
-	fclose(kernel_fp);
-	delete []kernelBuffer;
 }
 
 void convert_bmp_to_jpg(const char* input_path, const char* output_path) {
