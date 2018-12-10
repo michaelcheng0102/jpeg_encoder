@@ -35,7 +35,10 @@ struct OpenCL {
 	size_t global_threads[10];
 	size_t local_threads[10];
 	cl_uint work_dim;
+	int thread_num;
 };
+
+OpenCL opencl;
 
 inline double alpha(int x) {
 	if (x == 0) {
@@ -228,7 +231,6 @@ void encode(YUV &yuv) {
 
 	//////////////////////////////////////////////////////////////////////////////////////////
 
-	OpenCL opencl;
 	cl_int status;
 
 	// platform
@@ -273,7 +275,7 @@ void encode(YUV &yuv) {
 
 	opencl.work_dim = 1;
 	opencl.global_threads[0] = (size_t)(jpeg_height * jpeg_width);
-	opencl.local_threads[0] = (size_t)1;
+	opencl.local_threads[0] = (size_t)opencl.thread_num;
 
 	fclose(kernel_fp);
 	delete []kernelBuffer;
@@ -702,6 +704,8 @@ void write_to_file(const char* output) {
 }
 
 void jpeg_init(int thread_num) {
+	opencl.thread_num = thread_num;
+
 	for (int i = 0; i < 16; i++) {
 		qtab[i] = NULL;
 		hdc[i] = NULL;
