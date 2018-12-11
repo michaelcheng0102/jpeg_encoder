@@ -4,8 +4,8 @@ OBJ = obj
 SRC = src
 INC = inc
 
-CXX = g++-8
-CXX_LIBS = -lpthread
+CXX = g++
+CXX_LIBS =
 CXX_FLAGS = -framework OpenCL -O2 --std=c++11 -I$(INC)
 
 DEPS = constants.h
