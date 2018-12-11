@@ -5,8 +5,8 @@ SRC = src
 INC = inc
 
 CXX = g++
-CXX_LIBS = -lpthread -fopenmp
-CXX_FLAGS = -O2 --std=c++11 -I$(INC)
+CXX_LIBS =
+CXX_FLAGS = -O2 --std=c++11 -I$(INC) -fopenmp
 
 DEPS = constants.h
 
